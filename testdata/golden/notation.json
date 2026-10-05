@@ -1,0 +1,26 @@
+{
+  "comment": "金标准中文记法集（09 §2.1 之 3）：chineseNotation(piece, from, to) 输出与 expected 逐字一致。piece 为 FEN 字符；from/to 为 [col, row]。红方列号 = HAN[col]（col 0→九 … col 8→一），黑方 = col+1；全部经人工核验。",
+  "cases": [
+    { "name": "红炮平移（经典开局）", "piece": "C", "from": [7, 7], "to": [4, 7], "expected": "炮二平五" },
+    { "name": "红炮另一侧平移", "piece": "C", "from": [1, 7], "to": [4, 7], "expected": "炮八平五" },
+    { "name": "红炮同列进四", "piece": "C", "from": [7, 7], "to": [7, 3], "expected": "炮二进四" },
+    { "name": "黑马斜进（经典开局）", "piece": "n", "from": [7, 0], "to": [6, 2], "expected": "马8进7" },
+    { "name": "黑马斜退（黑子在红方底线向后）", "piece": "n", "from": [7, 9], "to": [6, 7], "expected": "马8退7" },
+    { "name": "红马斜进（经典开局）", "piece": "N", "from": [7, 9], "to": [6, 7], "expected": "马二进三" },
+    { "name": "红兵直线进", "piece": "P", "from": [4, 6], "to": [4, 5], "expected": "兵五进一" },
+    { "name": "红兵过河平移", "piece": "P", "from": [0, 4], "to": [1, 4], "expected": "兵九平八" },
+    { "name": "黑卒直线进", "piece": "p", "from": [0, 3], "to": [0, 4], "expected": "卒1进1" },
+    { "name": "红车同列进一", "piece": "R", "from": [8, 9], "to": [8, 8], "expected": "车一进一" },
+    { "name": "红车同列退二", "piece": "R", "from": [8, 7], "to": [8, 9], "expected": "车一退二" },
+    { "name": "红车另一翼同列进一", "piece": "R", "from": [0, 9], "to": [0, 8], "expected": "车九进一" },
+    { "name": "黑车同列退一", "piece": "r", "from": [0, 2], "to": [0, 1], "expected": "车1退1" },
+    { "name": "红仕斜进（右仕）", "piece": "A", "from": [5, 9], "to": [4, 8], "expected": "仕四进五" },
+    { "name": "红仕斜进（左仕）", "piece": "A", "from": [3, 9], "to": [4, 8], "expected": "仕六进五" },
+    { "name": "黑士斜进（左士）", "piece": "a", "from": [3, 0], "to": [4, 1], "expected": "士4进5" },
+    { "name": "黑士斜进（右士）", "piece": "a", "from": [5, 0], "to": [4, 1], "expected": "士6进5" },
+    { "name": "红相斜进补中（经典开局）", "piece": "B", "from": [6, 9], "to": [4, 7], "expected": "相三进五" },
+    { "name": "红相斜进边路", "piece": "B", "from": [2, 9], "to": [0, 7], "expected": "相七进九" },
+    { "name": "红帅同列进一", "piece": "K", "from": [4, 9], "to": [4, 8], "expected": "帅五进一" },
+    { "name": "黑将平移", "piece": "k", "from": [4, 0], "to": [3, 0], "expected": "将5平4" }
+  ]
+}
