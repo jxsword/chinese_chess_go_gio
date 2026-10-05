@@ -1,0 +1,46 @@
+# CI 骨架（design_docs/10 §1 M0' 验证门 / §4 CI 缓存口径；上游-DR-012：质量门全平台 -race 无例外）。
+# 工具全部不进 go.mod（依赖白名单哲学，上游-DR-010 同构）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    # gofmt 为跨平台确定性的字节级检查，跑一次即可（ubuntu）。
+    name: gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true # go-build + 模块缓存（10 §4）
+      - name: 安装 Gio Linux cgo 依赖（M0' POC-5 实测口径）
+        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev
+      - name: gofmt 检查（空输出=通过）
+        run: test -z "$(gofmt -l .)"
+
+  test:
+    name: vet + test -race (${{ matrix.os }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: 安装 Gio Linux cgo 依赖
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev
+      - name: go vet
+        run: go vet ./...
+      - name: go test -race（质量门标准口径，全平台无例外）
+        run: go test ./... -race
