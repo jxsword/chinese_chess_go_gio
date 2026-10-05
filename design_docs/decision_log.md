@@ -42,6 +42,12 @@
   4. **IME**：widget.Editor + 输入法协议；WSLg fcitx5 场景为 M0' POC 排险项（08 §IME）。
   5. **长列表**：layout.List 虚拟化 + internal/state 分页索引（上游 corpusBrowser 分批 128 语义保留）。
 - 理由：Gio 是 Go 生态中最贴合"单二进制 + 全自绘 + 中文文本"约束的成熟方案；B~D 均在关键约束上失分。POC 前不预设渲染/IME 细节结论，是诚实口径。
+- **M0' POC 回填（2026-10-06，gio v0.10.3 + typesetting v0.3.5 实测，详见 08 §12）**：
+  1. 渲染后端：运行时回退（无构建标签）——默认 Wayland（wlDriver 优先），WAYLAND_DISPLAY 失效回落 X11；实际走 GL/EGL（gio v0.10.3 X11 侧 vulkanBuggy=true）；软渲染兜底 LIBGL_ALWAYS_SOFTWARE=1 渲染正确——R-G1 排除。构建依赖：Linux 需 vulkan 头文件 + x11-xcb.pc（CI 同口径）。
+  2. 帧循环：InvalidateCmd 排帧链稳定（动画期 26~28 FPS，WSLg RDP 合成节流）；220ms 帧时间戳权威结束实测偏差 ≤1 帧——R-G4 排除。
+  3. IME：X11 后端无 XIM 客户端，fcitx5 不可输入（KG-003）；粘贴兜底实测可用；Wayland text-input-v3 桥接 Windows IME 留用户手测。
+  4. 长列表：layout.List 14 万局程序化滚动 FPS 80 / 帧开销 avg 680µs——R-G3 排除；红线：禁逐帧 ScrollBy（KG-002）。
+  5. 文本绘制：居中文字绕开 material.Label 宏重放（定位不稳），直接 typesetting 整形 + clip.Outline 填充（POC 口径，M2' BoardView 沿用）。
 - 影响：00 文档（架构/线程模型）、08 文档（全部绘制与交互实现）、09 文档（Gio 层测试方式）、10 文档 M0'（POC 排险五项）、AGENTS.md 依赖白名单（gioui.org、go-text/typesetting）。
 
 ## 附：沿用上游不做重裁的决策清单

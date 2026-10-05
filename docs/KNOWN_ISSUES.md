@@ -69,3 +69,5 @@ K7~K11、K14、K15、K17~K33 共 25 条为上游领域层 P3 留档（K12 已注
 | KG | 标题 | 层 | 说明 | 处置 |
 |---|---|---|---|---|
 | KG-001 | 与上游应用共存时共享 keyring service 槽位 | 凭据 | 复制物常量 `KeyringServiceName="chinese-chess-ultra-go"` 零修改（DR-G001）；两版应用共存时读写同三槽位（同用户同服务，API Key 语义可视为共享） | 接受并留档；若用户提出隔离需求，走 DR 评估改 service 名的映照差异成本 |
+| KG-002 | gio `List.ScrollBy` 逐帧程序化滚动触发文本绘制病理慢路径 | Gio 库（M0' POC-4 实测） | 每帧调用 `ScrollBy` + 每帧 Invalidate 的场景下，text 绘制进入病理性慢路径（paintGlyph→Shape/Bitmaps 巨型化，帧永不成→窗口黑屏；goroutine 栈留证于 M0' 会话记录）。直接推进 `Position.First`（同样的状态变化）不触发。疑 gio v0.10.3 内部缺陷，未深挖上游根因 | 规避：POC-4 用 `Position.First` 直接推进；M5' 棋谱库用自然手势滚动与 `ScrollTo`（搜索跳转），禁逐帧 ScrollBy；若 M5' 需程序化平滑滚动再评估升级 gio |
+| KG-003 | gio X11 后端无 IME 支持（无 XIM 客户端），WSLg fcitx5(XIM) 无法输入中文 | Gio 库 × 环境（M0' POC-3 实测） | gio v0.10.3 X11 后端仅调 XFilterEvent、无 XOpenIM（源码核实）；本机 fcitx5 以 `--disable=wayland` XIM 模式运行，XTEST 直键入原样进入 Editor 未转换。Wayland 后端有 zwp_text_input_v3，是否被 WSLg RDP 桥接到 Windows IME 留用户手测（M4' 前必须定论） | workaround 已实测：**剪贴板粘贴路径可用**（首帧 WriteCmd 写样本 + Ctrl+V 回读 CJK 成功）；M4' 表单验收以粘贴兜底为保底口径；后续候选=升gio版本跟踪 X11 IME 支持或 Wayland text-input 路线 |
