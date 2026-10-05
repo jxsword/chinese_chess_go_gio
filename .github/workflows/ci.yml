@@ -19,7 +19,7 @@ jobs:
           go-version: "1.26.x"
           cache: true # go-build + 模块缓存（10 §4）
       - name: 安装 Gio Linux cgo 依赖（M0' POC-5 实测口径）
-        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libwayland-egl1-dev libegl-dev libx11-dev libxcursor-dev libxfixes-dev
+        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libegl-dev libx11-dev libxcursor-dev libxfixes-dev
       - name: gofmt 检查（空输出=通过）
         run: test -z "$(gofmt -l .)"
 
@@ -39,7 +39,7 @@ jobs:
           cache: true
       - name: 安装 Gio Linux cgo 依赖
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libwayland-egl1-dev libegl-dev libx11-dev libxcursor-dev libxfixes-dev
+        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libegl-dev libx11-dev libxcursor-dev libxfixes-dev
       - name: go vet
         run: go vet ./...
       - name: go test -race（质量门标准口径，全平台无例外）
