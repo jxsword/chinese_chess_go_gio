@@ -35,4 +35,5 @@ var (
 	PocSelected   = rgba(0x1565c0, 0.416) // --cc-selected 选中圈
 	PocLegalHint  = rgba(0x2e7d32, 0.416) // --cc-legal-hint 合法目标
 	PocLastMove   = rgba(0xf9a825, 0.333) // --cc-last-move 最近着法
+	PocCheckWarn  = rgba(0xb71c1c, 0.6)   // 将军提示环（08 §3.2 #7；无 Electron 锚点，POC 自定）
 )

@@ -22,9 +22,9 @@ func (p *Placeholder) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, PocBackground)
 
-	title := material.H3(pocTheme, fmt.Sprintf("M0' 骨架就绪 — 版本 %s", p.Version))
+	title := material.H3(pocThemeSimple, fmt.Sprintf("M0' 骨架就绪 — 版本 %s", p.Version))
 	title.Color = PocText
-	body := material.Body1(pocTheme, "window.Event() 单事件循环运行中（本占位页将在 M1' 删除）")
+	body := material.Body1(pocThemeSimple, "window.Event() 单事件循环运行中（本占位页将在 M1' 删除）")
 	body.Color = PocText
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
@@ -38,5 +38,5 @@ func (p *Placeholder) Layout(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-// pocTheme POC/占位期临时主题；正式里程碑换 internal/ui/theme.go（08 §1）。
-var pocTheme = material.NewTheme()
+// pocThemeSimple 无 CJK 注册的兜底主题（占位页用；POC 页用 poc_fonts.go 的 pocTheme）。
+var pocThemeSimple = material.NewTheme()
