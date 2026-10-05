@@ -2,7 +2,7 @@
 //
 // 用法：go run ./cmd/poc <demo>
 //
-//	demo ∈ {board}（T0'.3~T0'.5 陆续追加 anim/ime/list）
+//	demo ∈ {board, anim}（T0'.4~T0'.5 陆续追加 ime/list）
 //
 // 各 demo 独立开窗，互不依赖正式页面；POC 实现位于 internal/ui/poc_*.go，
 // 正式里程碑重写不继承。
@@ -35,7 +35,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "用法: go run ./cmd/poc <board>")
+	fmt.Fprintln(os.Stderr, "用法: go run ./cmd/poc <board|anim>")
 	os.Exit(2)
 }
 
@@ -43,6 +43,8 @@ func demo(name string) (ui.Page, string) {
 	switch name {
 	case "board":
 		return ui.NewPocBoard(), "POC-1 棋盘自绘"
+	case "anim":
+		return ui.NewPocAnim(), "POC-2 220ms 飞行动画帧循环"
 	default:
 		return nil, ""
 	}
