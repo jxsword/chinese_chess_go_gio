@@ -1,0 +1,121 @@
+# ============== Go 语言通用 ==============
+# 编译生成的二进制可执行文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+
+# 测试二进制与覆盖率文件
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go Modules 相关（按需选择）
+# vendor/          # 若使用 vendor 模式提交依赖，请注释掉此行
+go.work.sum
+
+# cgo 中间生成文件
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+
+# ============== 操作系统垃圾文件 ==============
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.lnk
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+## Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ============== IDE / 编辑器 ==============
+## VS Code
+.vscode/
+.vscode-test/
+*.code-workspace
+
+## JetBrains 系列（GoLand/IntelliJ IDEA）
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+## Vim / Neovim
+*.swp
+*.swo
+
+## Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+## 其他编辑器
+.atom/
+.buildpath
+.project
+.settings/
+
+# ============== 构建与发布目录 ==============
+# Wails v2：build/ 存放打包资源（appicon/windows/darwin 配置，需提交），
+# 仅 build/bin/ 为构建产物；frontend/dist/ 为前端构建输出
+# （保留 .gitkeep 占位，支撑 //go:embed all:frontend/dist 在前端构建前可编译）。
+build/bin/
+bin/
+pkg/
+output/
+release/
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+
+# 临时文件与日志
+tmp/
+temp/
+logs/
+*.log
+*.pid
+*.tmp
+
+# ============== 环境与配置 ==============
+# 环境变量文件（敏感信息不提交）
+.env
+.env.local
+.env.*.local
+
+# 调试相关
+debug/
+*.debug
+core
+
+# zcode
+.zcode/
+.mimosa/
+.agents/
+.zcodeignore
+zcode.json
+
+# Wails 生成物（绑定桩与运行时，不依赖它，适配层自带类型声明）
+frontend/wailsjs/
