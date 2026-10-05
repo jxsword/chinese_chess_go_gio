@@ -54,6 +54,11 @@ go run ./cmd/eval      # MatchRunner 能力评估（LLM_BASE_URL/LLM_MODEL 环�
 go build -ldflags "-X main.version=..."   # 生产构建（单二进制）
 ```
 
+**WSL 开发环境前提**（M0' POC-5 实测，推荐一次性 `sudo apt install -y libx11-xcb-dev libvulkan-dev` 消除全部两项；无 sudo 时按 PROGRESS.md 的用户级等价物）：
+
+- gio v0.10.3 在 Linux 无条件编译 Vulkan 后端（cgo），需 vulkan 头文件；X11 后端 cgo 需 `x11-xcb.pc`（libx11-xcb-dev）。
+- 本机已用 `go env -w CGO_CFLAGS="-I$HOME/.local/include"`（vulkan + Xlib-xcb 头文件，`go env -u CGO_CFLAGS` 可撤销）+ shell `export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig"`（x11-xcb shim，建议写入 ~/.bashrc）。
+
 ## 质量门（每个任务收尾前必须全绿）
 
 `gofmt -l` 空输出 + `go vet ./...` 0 问题 + `go test ./... -race` 全量通过（全平台无例外，上游-DR-012）；UI 任务另加：dev 模式手测对应交互（对照 08 文档防错清单）+ 用户手动验收（11 §5）。
