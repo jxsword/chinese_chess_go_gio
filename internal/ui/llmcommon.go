@@ -89,7 +89,7 @@ func (a *streamMessageArea) layout(gtx layout.Context) layout.Dimensions {
 	return a.list.Layout(gtx, n, func(gtx layout.Context, i int) layout.Dimensions {
 		l := material.Body2(PageTheme, a.lines[i])
 		l.Color = ThemeOnSurface
-		l.TextSize = unit.Sp(11)
+		l.TextSize = unit.Sp(13)
 		return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, l.Layout)
 	})
 }
@@ -126,7 +126,7 @@ func (c *choiceRow) draw(gtx layout.Context, title string, current int, titleWid
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(titleWidth))
 			l := material.Body2(PageTheme, title)
 			l.Color = ThemeOnSurface
-			l.TextSize = unit.Sp(12)
+			l.TextSize = unit.Sp(14)
 			return l.Layout(gtx)
 		}),
 	}
@@ -156,7 +156,7 @@ func thinkingSuffix(startedAt time.Time, attemptN, attemptTotal int) string {
 func sectionTitle(gtx layout.Context, s string) layout.Dimensions {
 	l := material.Body2(PageTheme, s)
 	l.Color = ThemeSeedDark
-	l.TextSize = unit.Sp(13)
+	l.TextSize = unit.Sp(15)
 	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(2)}.Layout(gtx, l.Layout)
 }
 
@@ -164,7 +164,7 @@ func sectionTitle(gtx layout.Context, s string) layout.Dimensions {
 func hintLine(gtx layout.Context, s string) layout.Dimensions {
 	l := material.Body2(PageTheme, s)
 	l.Color = ThemeSeedDark
-	l.TextSize = unit.Sp(11)
+	l.TextSize = unit.Sp(13)
 	return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, l.Layout)
 }
 
@@ -175,7 +175,7 @@ func messageAreaCard(gtx layout.Context, area *streamMessageArea, title string) 
 			return sectionTitle(gtx, title)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(unit.Dp(120))
+			h := gtx.Dp(unit.Dp(140))
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			gtx.Constraints.Min.Y = h
 			gtx.Constraints.Max.Y = h

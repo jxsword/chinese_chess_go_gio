@@ -49,6 +49,31 @@
 - 语义偏离 3（布局层）：对局设置/引擎类型的 `<select>` 一律 chips 呈现（Gio 无 select；M3' 难度 chips 同款偏离）；预设选择 6 项折两行。
 - M3'/M2' 遗留偏离注记（PlayMove 即时落盘+视觉飞行层、恢复取档先裁决、进页锁输入等）对 M4' 两页同样适用（复用同一骨架）。
 
+## M4' 验收反馈修复轮（2026-10-06，§6.2 流程）
+
+用户反馈三项（人机 LLM 对战页），处置：
+
+1. **【修复】表单边界控制字符清洗（sanitizeField）**：百炼端点测试连接 404 回显
+   "The model `qwen3.8-max:\u0000\u0000\u0000\u0000` does not exist"——请求体模型 ID
+   夹带 4 个 NUL 控制字符（经键入/剪贴板路径进入 Editor，原样进入请求体；其他软件
+   用同一模型+Key 正常即佐证请求不干净）。配置卡三字段（baseUrl/apiKey/model）在
+   表单边界统一剥离 C0 控制字符与 DEL + TrimSpace（UI 层清洗，复制物协议构造不动，
+   #G2）；SetConfig/ApplyPaste/Config() 三入口全覆盖 + 用例锚定。
+   **复测指引**：重新打开配置卡，不改 Key 直接"测试连接"；若干净模型名仍 404，
+   则该账号未开通 qwen3.8-max（复制物视觉预设示例模型，M6' 识图用）——换
+   `qwen-max` / `qwen-plus`（百炼对话模型）验证。
+2. **【修复】设置面板字号过小**：LLM 两页侧板整体加大——配置卡标题 13→15sp、
+   字段标签 12→14sp、输入框 13→14sp、提示行 11→13sp、chips 12→13sp（共享
+   layoutOptionChips，人机页同步受益）、小节标题 13→15sp、消息区 11→13sp+
+   高度 120→140dp、选择行标签 12→14sp；侧板宽度 320→380dp。截图取证
+   ~/poc_evidence/m4/humanvsllm_fontfix.png。
+3. **【登记·KG-011】最大化后无法最小化**：应用不拦截标题栏按钮（无 app 侧代码
+   路径）；gio x11 仅在 app 发起 Configure(Minimized) 时调 XIconifyWindow，
+   最大化态下 WM 侧 iconify 请求不生效——疑 WSLg 窗口管理器对 gio 窗口的
+   WM_STATE 交互缺陷。变通：先"还原"再最小化；升 gio 复核（与 KG-003 同项）。
+
+回归：gofmt/vet/`go test ./... -race -count=1` 全绿（commit fix(m4')）。
+
 ## M4' 手测清单（用户执行；真实端点一整局为验收门）
 
 ### 准备：端点配置（GLM / DeepSeek 任选其一，或都用）

@@ -875,7 +875,7 @@ func (p *HumanVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			w := gtx.Dp(unit.Dp(320)) // 含内边距总宽（M3' 溢出修复口径）
+			w := gtx.Dp(unit.Dp(380)) // 含内边距总宽（M3' 溢出修复口径；M4' 验收反馈 320→380 字号加大）
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.layoutSidePanel)

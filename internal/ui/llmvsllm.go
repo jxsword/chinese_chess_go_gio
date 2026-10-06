@@ -910,7 +910,7 @@ func (p *LlmVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			w := gtx.Dp(unit.Dp(320))
+			w := gtx.Dp(unit.Dp(380))
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.layoutSidePanel)
@@ -988,7 +988,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.redNote != "" {
 				l := material.Body2(PageTheme, "红方："+p.redNote)
 				l.Color = ThemeOnSurface
-				l.TextSize = unit.Sp(12)
+				l.TextSize = unit.Sp(13)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -997,7 +997,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.blackNote != "" {
 				l := material.Body2(PageTheme, "黑方："+p.blackNote)
 				l.Color = ThemeOnSurface
-				l.TextSize = unit.Sp(12)
+				l.TextSize = unit.Sp(13)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -1006,7 +1006,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.lastMoveText != "" {
 				l := material.Body2(PageTheme, p.lastMoveText)
 				l.Color = ThemeSeedDark
-				l.TextSize = unit.Sp(12)
+				l.TextSize = unit.Sp(13)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -1073,7 +1073,7 @@ func (p *LlmVsLlmPage) sideTypeRow(gtx layout.Context, label string, llmBtn, bui
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(40))
 			l := material.Body2(PageTheme, label)
 			l.Color = ThemeOnSurface
-			l.TextSize = unit.Sp(12)
+			l.TextSize = unit.Sp(14)
 			return l.Layout(gtx)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

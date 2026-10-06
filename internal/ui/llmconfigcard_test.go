@@ -113,3 +113,18 @@ func TestLlmConfigCardNoThinkingToggle(t *testing.T) {
 	card := &LlmConfigCard{}
 	_ = card // 编译期断言：LlmConfigCard 无 thinking 相关导出字段/方法。
 }
+
+// M4' 验收反馈修复轮：表单边界清洗——控制字符（NUL 等）剥离（sanitizeField）。
+// 实证：百炼 404 回显模型名尾部 4 个 NUL，请求体夹带控制字符。
+func TestLlmConfigCardSanitizeControlChars(t *testing.T) {
+	card := NewLlmConfigCard("t", "llm_config_black", nil, llm.LlmEndpointConfig{}, nil)
+	card.ApplyPaste(PasteTargetModel, "qwen3.8-max:\x00\x00\x00\x00", nil)
+	if got := card.Config().Model; got != "qwen3.8-max:" {
+		t.Fatalf("model = %q, want NULs stripped", got)
+	}
+	card.SetConfig(llm.LlmEndpointConfig{BaseURL: "https://a/v1\n", APIKey: "sk-\x00key\x00", Model: " m1 "})
+	cfg := card.Config()
+	if cfg.BaseURL != "https://a/v1" || cfg.APIKey != "sk-key" || cfg.Model != "m1" {
+		t.Fatalf("SetConfig sanitize: %+v", cfg)
+	}
+}

@@ -217,7 +217,7 @@ func layoutOptionChips(gtx layout.Context, width int, opts ...chipOpt) layout.Di
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						l := material.Body2(PageTheme, o.label)
 						l.Color = fg
-						l.TextSize = unit.Sp(12)
+						l.TextSize = unit.Sp(13)
 						return l.Layout(gtx)
 					})
 				})
