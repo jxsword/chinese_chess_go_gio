@@ -48,6 +48,16 @@
 - 语义偏离 2（有意）：进页恢复前锁输入（上游无此守卫，恢复完成前点击会被恢复覆盖）——防错 #5 口径的加强。
 - minimize 事件源核实结论（07 §2 表遗留项）：gio 无直接窗口事件（system.ActionMinimize 仅为发起动作）；WSLg 实测最小化伴随失焦，blur 相位覆盖自动保存场景；派发点保留（autosaveBridge.OnMinimize→总线），其余平台覆盖面留后续里程碑手测。
 
+## M2' 验收结论（2026-10-06，用户手测）
+
+- **第 1 轮反馈**：新游戏确认框未在窗口正中弹出（贴左上角、面板撑满整窗高度）；其余 12 项手测全部通过。
+- **修复（KG-009）**：根因=gio `layout.Center` 是 Direction、按 Min 约束空间居中，而 Stack 的
+  Stacked 子节点 Min={0,0} → 面板退化左上角。`ui/widgets.go` drawPanel/DrawToast 改为
+  宏量测内容尺寸 + `op.Offset` 手动居中（面板高度改按内容自适应）；toast 同模式修复
+  （底部居中）。X11 截图取证链验证：弹窗正中小框、确定后新局/步数归零/计时归零
+  （证据 ~/poc_evidence/m2/m2_dialog.png、m2_newgame.png）。
+- 顺带实证：重进双人对弈恢复存档时裁决接线按收口点正确触发（k=2 toast），计时恢复后继续累计。
+
 ## M2' 手测清单（用户执行；对照 08 §11 防错 #1~#7/#11/#12）
 
 数据目录：`~/.config/chinese-chess-ultra-gio/`（库 chinese_chess_ultra_gio.sqlite、settings.json）。

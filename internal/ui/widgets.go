@@ -9,6 +9,7 @@ import (
 	"image/color"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -48,41 +49,55 @@ func (d *ModalDialog) LayoutFull(gtx layout.Context) (confirmed, canceled bool) 
 	return confirmed, canceled
 }
 
-// drawPanel 居中面板：标题/内容/按钮行。
+// drawPanel 居中面板：先量内容尺寸（宽度=面板宽、高度自适应），再手动偏移到
+// 窗口正中绘制。不走 layout.Center——gio 的 Center 是 Direction，按 Min 约束
+// 空间居中，而 Stack 的 Stacked 子节点 Min={0,0} 会退化到左上角（KG-009）。
 func (d *ModalDialog) drawPanel(gtx layout.Context) {
-	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		w := gtx.Dp(unit.Dp(380))
-		if gtx.Constraints.Max.X < w {
-			w = gtx.Constraints.Max.X
-		}
-		gtx.Constraints = layout.Exact(image.Point{X: w, Y: gtx.Constraints.Max.Y})
-		gtx.Constraints.Min.Y = 0
-		defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
-		paint.Fill(gtx.Ops, ThemeSurface)
+	W, H := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
+	panelW := gtx.Dp(unit.Dp(380))
+	if W < panelW {
+		panelW = W
+	}
 
-		inset := unit.Dp(20)
-		return layout.Inset{Top: inset, Bottom: inset, Left: inset, Right: inset}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					t := material.H6(PageTheme, d.Title)
-					t.Color = ThemeOnSurface
-					return t.Layout(gtx)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					c := material.Body2(PageTheme, d.Content)
-					c.Color = ThemeOnSurface
-					return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(16)}.Layout(gtx, c.Layout)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}.Layout(gtx,
-						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
-						layout.Rigid(d.button(&d.cancel, d.CancelLabel, ThemeSurfaceDim, ThemeSeedDark, unit.Dp(8))),
-						layout.Rigid(d.button(&d.confirm, d.ConfirmLabel, ThemeSeed, ThemeSurface, 0)),
-					)
-				}),
+	// 量测：内容区宽度=面板宽，高度自由；面板底色在最终偏移后绘制
+	macro := op.Record(gtx.Ops)
+	mctx := gtx
+	mctx.Constraints = layout.Constraints{Max: image.Point{X: panelW, Y: H}}
+	dims := layout.UniformInset(unit.Dp(20)).Layout(mctx, d.panelContent)
+	call := macro.Stop()
+
+	panelH := dims.Size.Y
+	if panelH > H {
+		panelH = H
+	}
+	tr := op.Offset(image.Pt((W-panelW)/2, (H-panelH)/2)).Push(gtx.Ops)
+	defer tr.Pop()
+	defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: panelW, Y: panelH}}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, ThemeSurface)
+	call.Add(gtx.Ops)
+}
+
+// panelContent 标题/内容/按钮行（约束=面板内容区）。
+func (d *ModalDialog) panelContent(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			t := material.H6(PageTheme, d.Title)
+			t.Color = ThemeOnSurface
+			return t.Layout(gtx)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			c := material.Body2(PageTheme, d.Content)
+			c.Color = ThemeOnSurface
+			return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(16)}.Layout(gtx, c.Layout)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+				layout.Rigid(d.button(&d.cancel, d.CancelLabel, ThemeSurfaceDim, ThemeSeedDark, unit.Dp(8))),
+				layout.Rigid(d.button(&d.confirm, d.ConfirmLabel, ThemeSeed, ThemeSurface, 0)),
 			)
-		})
-	})
+		}),
+	)
 }
 
 // button 对话框按钮（定宽，主/次配色由入参决定）。
@@ -99,27 +114,28 @@ func (d *ModalDialog) button(c *widget.Clickable, label string, bg, fg color.NRG
 }
 
 // DrawToast 非阻塞 toast 浮层（.cc-snackbar；Stack 顶层，不注册输入事件——防错 #11）。
-// 底部居中胶囊（上游 .cc-snackbar 固定底部）。
+// 底部居中胶囊（上游 .cc-snackbar 固定底部）；手动偏移定位（KG-009 同 drawPanel）。
 func DrawToast(gtx layout.Context, text string) {
 	if text == "" {
 		return
 	}
+	W, H := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
+	w := gtx.Dp(unit.Dp(320))
+	if W < w {
+		w = W
+	}
+	h := gtx.Dp(unit.Dp(40))
+	bottom := gtx.Dp(unit.Dp(24))
+	tr := op.Offset(image.Pt((W-w)/2, H-h-bottom)).Push(gtx.Ops)
+	defer tr.Pop()
+	defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: w, Y: h}}, gtx.Dp(unit.Dp(20))).Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, rgba(0x2b2320, 0.92))
+	// 胶囊内文字居中（Center 按 Exact Min=Max 空间居中，此处语义正确）
+	gtx.Constraints = layout.Exact(image.Point{X: w, Y: h})
 	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		w := gtx.Dp(unit.Dp(320))
-		if gtx.Constraints.Max.X < w {
-			w = gtx.Constraints.Max.X
-		}
-		return layout.Inset{Bottom: unit.Dp(24)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(unit.Dp(40))
-			gtx.Constraints = layout.Exact(image.Point{X: w, Y: h})
-			defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: w, Y: h}}, gtx.Dp(unit.Dp(20))).Push(gtx.Ops).Pop()
-			paint.Fill(gtx.Ops, rgba(0x2b2320, 0.92))
-			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				l := material.Body2(PageTheme, text)
-				l.Color = ThemeSurface
-				return l.Layout(gtx)
-			})
-		})
+		l := material.Body2(PageTheme, text)
+		l.Color = ThemeSurface
+		return l.Layout(gtx)
 	})
 }
 
