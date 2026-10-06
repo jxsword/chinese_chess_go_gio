@@ -159,7 +159,7 @@ func newHumanVsLlmPage(env LlmEnv, hooks HumanVsLlmHooks, llmRunner LlmRunner, r
 	p.configCard.OnTestConnection = p.onTestConnection
 	p.configCard.OnPaste = p.onPasteRequest
 
-	p.canSave = func() bool { return true }
+	p.canSave = func() bool { return env.BattleStart == nil } // 进入对战（续战来源）不写存档桶（防错 #6）
 	p.board.Blocked = func() bool { return p.modalOpen() }
 	p.board.OnMoved = p.onPlayerMoved
 
@@ -178,12 +178,19 @@ func newHumanVsLlmPage(env LlmEnv, hooks HumanVsLlmHooks, llmRunner LlmRunner, r
 	p.autoSave.Attach()
 
 	p.store.VM.LockInput()
-	p.restorePending = true
-	if env.DB != nil {
-		env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsLlm)
-	} else {
+	if p.env.BattleStart != nil {
+		// 进入对战（T5'.3）：跳过恢复，以起点 FEN 开局（recordBattle 路由语义）。
 		p.restorePending = false
 		p.store.VM.UnlockInput()
+		p.store.VM.NewGameFromFen(p.env.BattleStart.Fen)
+	} else {
+		p.restorePending = true
+		if env.DB != nil {
+			env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsLlm)
+		} else {
+			p.restorePending = false
+			p.store.VM.UnlockInput()
+		}
 	}
 
 	// 配置槽位异步加载（未加载完成不触发/不回写，防错 #4）

@@ -81,7 +81,7 @@ func NewHumanVsHumanPage(env GameEnv, hooks HumanVsHumanHooks) *HumanVsHumanPage
 	if env.NewRequestID == nil { // 测试注入容错
 		p.restoreID = "restore-test"
 	}
-	p.canSave = func() bool { return true } // M2' 无棋谱续战来源
+	p.canSave = func() bool { return env.BattleStart == nil } // 进入对战（续战来源）不写存档桶（防错 #6）
 	p.board.Blocked = func() bool { return p.modalOpen() }
 
 	// 重复裁决接线（08 §3.5：双方均为玩家，三次重复判和弹确认框）
@@ -100,14 +100,21 @@ func NewHumanVsHumanPage(env GameEnv, hooks HumanVsHumanHooks) *HumanVsHumanPage
 	})
 	p.autoSave.Attach()
 
-	// 进页恢复：先锁输入，取档回执后应用决策（restore.go；存储异常降级开新局）
+	// 进页恢复：先锁输入，取档回执后应用决策（restore.go；存储异常降级开新局）；
+	// 进入对战（T5'.3）：跳过恢复，以起点 FEN 开局（recordBattle 路由语义）。
 	store.VM.LockInput()
-	p.restorePending = true
-	if env.DB != nil {
-		env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsHuman)
-	} else {
+	if p.env.BattleStart != nil {
 		p.restorePending = false
-		store.VM.UnlockInput() // 无 DB 面（测试/降级）：直接可玩
+		store.VM.UnlockInput()
+		store.VM.NewGameFromFen(p.env.BattleStart.Fen)
+	} else {
+		p.restorePending = true
+		if env.DB != nil {
+			env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsHuman)
+		} else {
+			p.restorePending = false
+			store.VM.UnlockInput() // 无 DB 面（测试/降级）：直接可玩
+		}
 	}
 
 	p.newGameDialog = NewModalDialog("开始新游戏", "当前棋局将被清空，确定要开始新游戏吗？")

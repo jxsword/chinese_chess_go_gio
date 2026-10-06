@@ -138,7 +138,7 @@ func newHumanVsAiPage(env GameEnv, hooks HumanVsAiHooks, runner EngineSubmitter)
 	if env.NewRequestID == nil { // 测试注入容错
 		p.restoreID = "restore-test"
 	}
-	p.canSave = func() bool { return true } // M3' 无残局来源（防错 #6 面 M6' 落地）
+	p.canSave = func() bool { return env.BattleStart == nil } // 进入对战（续战来源）不写存档桶（防错 #6）
 	p.board.Blocked = func() bool { return p.modalOpen() }
 	p.board.OnMoved = p.onPlayerMoved // 仅历史增长触发（防错 #3，BoardView 守卫）
 
@@ -159,12 +159,18 @@ func newHumanVsAiPage(env GameEnv, hooks HumanVsAiHooks, runner EngineSubmitter)
 	p.autoSave.Attach()
 
 	store.VM.LockInput()
-	p.restorePending = true
-	if env.DB != nil {
-		env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsAi)
-	} else {
+	if p.env.BattleStart != nil {
 		p.restorePending = false
-		store.VM.UnlockInput() // 无 DB 面（测试/降级）
+		store.VM.UnlockInput()
+		store.VM.NewGameFromFen(p.env.BattleStart.Fen)
+	} else {
+		p.restorePending = true
+		if env.DB != nil {
+			env.DB.LoadLatestAsync(p.restoreID, state.ModeHumanVsAi)
+		} else {
+			p.restorePending = false
+			store.VM.UnlockInput() // 无 DB 面（测试/降级）
+		}
 	}
 
 	p.newGameDialog = NewModalDialog("开始新游戏", "当前棋局将被清空，确定要开始新游戏吗？")

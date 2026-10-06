@@ -159,8 +159,8 @@ func newLlmVsLlmPage(env LlmEnv, hooks LlmVsLlmHooks, llmRunner LlmRunner, runne
 	p.redCard.OnPaste = p.onRedPaste
 	p.blackCard.OnPaste = p.onBlackPaste
 
-	p.canSave = func() bool { return true }
-	p.board.Blocked = func() bool { return p.modalOpen() } // 自动对局期间 vm 亦锁输入
+	p.canSave = func() bool { return env.BattleStart == nil } // 进入对战（续战来源）不写存档桶（防错 #6）
+	p.board.Blocked = func() bool { return p.modalOpen() }    // 自动对局期间 vm 亦锁输入
 
 	p.judge = NewRepetitionJudge(p.store.VM, func(rules.Side) bool { return false }, p.showToast) // 双方均为引擎方：全部自动
 	p.store.VM.OnHistoryGrow = p.judge.OnHistoryGrow
@@ -177,12 +177,19 @@ func newLlmVsLlmPage(env LlmEnv, hooks LlmVsLlmHooks, llmRunner LlmRunner, runne
 	p.autoSave.Attach()
 
 	p.store.VM.LockInput()
-	p.restorePending = true
-	if env.DB != nil {
-		env.DB.LoadLatestAsync(p.restoreID, state.ModeLlmVsLlm)
-	} else {
+	if p.env.BattleStart != nil {
+		// 进入对战（T5'.3）：跳过恢复，以起点 FEN 开局（recordBattle 路由语义）。
 		p.restorePending = false
 		p.store.VM.UnlockInput()
+		p.store.VM.NewGameFromFen(p.env.BattleStart.Fen)
+	} else {
+		p.restorePending = true
+		if env.DB != nil {
+			env.DB.LoadLatestAsync(p.restoreID, state.ModeLlmVsLlm)
+		} else {
+			p.restorePending = false
+			p.store.VM.UnlockInput()
+		}
 	}
 
 	if env.Store != nil {

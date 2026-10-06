@@ -46,6 +46,9 @@ type Window struct {
 	// 自动保存生命周期总线（T2'.2，07 §2）：blur/minimize 相位 → 各页 GameAutoSave。
 	autoSaveBus *state.LifecycleBus
 	repo        *gameRepo
+	// pendingBattle "进入对战"起点（T5'.3，recordBattle 路由传参的 Gio 形态）：
+	// OnBattle 先置值再 Navigate，工厂闭包经 gameEnv() 消费（一次性，主 goroutine）。
+	pendingBattle *ui.BattleStart
 }
 
 // Store 存储装配（M2' 起对局页经 repo 适配器使用）。
@@ -175,7 +178,10 @@ func newRequestID(prefix string) string {
 }
 
 // gameEnv 构造对局页环境（T2'.2：ui 不 import app 的解耦点）。
+// pendingBattle 消费点：置值 → Navigate → 工厂闭包取走（一次性）。
 func (w *Window) gameEnv() ui.GameEnv {
+	battle := w.pendingBattle
+	w.pendingBattle = nil
 	return ui.GameEnv{
 		Settings:     w.settings,
 		Bus:          w.autoSaveBus,
@@ -184,6 +190,7 @@ func (w *Window) gameEnv() ui.GameEnv {
 		Emit:         w.emitFunc(),
 		Cancel:       w.Cancel,
 		NewRequestID: newRequestID,
+		BattleStart:  battle,
 	}
 }
 
@@ -272,6 +279,14 @@ func Run(cfg Config) error {
 					log.Println("app: 返回主页失败:", err)
 				}
 			},
+			// 进入对战（T5'.3，recordBattle 语义）：先置起点再导航——工厂闭包
+			// 经 gameEnv() 消费（一次性），目标页跳过存档恢复并以该 FEN 开局。
+			OnBattle: func(mode ui.BattleMode, fen string) {
+				w.pendingBattle = &ui.BattleStart{Fen: fen}
+				if err := w.Navigate(battleRouteOf(mode)); err != nil {
+					log.Println("app: 进入对战导航失败:", err)
+				}
+			},
 		})
 	})
 	// 其余 2 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
@@ -290,6 +305,21 @@ func Run(cfg Config) error {
 		return err
 	}
 	return w.Run(nil)
+}
+
+// battleRouteOf 进入对战模式 → 目标页路由（recordBattle.ts battleRouteFor）。
+func battleRouteOf(mode ui.BattleMode) Route {
+	switch mode {
+	case ui.BattleHumanVsAi:
+		return RouteHumanVsAi
+	case ui.BattleHumanVsHuman:
+		return RouteHumanVsHuman
+	case ui.BattleHumanVsLlm:
+		return RouteHumanVsLlm
+	case ui.BattleLlmVsLlm:
+		return RouteLlmVsLlm
+	}
+	return RouteHome
 }
 
 // routeOfEntry 主页入口 ID → 路由。

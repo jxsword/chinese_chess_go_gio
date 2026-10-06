@@ -48,7 +48,8 @@ var sortLabels = []struct {
 // CorpusHooks 语料页回调。
 type CorpusHooks struct {
 	OnBack func()
-	// OnBattle 进入对战（T5'.3 落位）：mode + 起点 FEN（字段随 T5'.3 接线）。
+	// OnBattle 进入对战（T5'.3，recordBattle 语义翻译）：mode + 起点 FEN。
+	OnBattle func(mode BattleMode, fen string)
 }
 
 // CorpusPage 语料库页 state struct（铁律 #G3：主 goroutine 独占；工厂页，
@@ -97,6 +98,10 @@ type CorpusPage struct {
 	// 非交互路径）：自动滚动 + 帧开销/FPS 统计浮层。
 	perf *framePerf
 
+	// 重放器（T5'.3）：详情视图 + 自动播放计时（replay:tick 经事件总线）。
+	replay       *ReplayView
+	replayForPtr *state.ParsedPuzzleView // 当前已装载的详情（换局检测）
+
 	// PGN 搜索（T5'.2）与详情视图（T5'.3）控件随后续任务落位
 }
 
@@ -113,6 +118,8 @@ func NewCorpusPage(env CorpusEnv, hooks CorpusHooks) *CorpusPage {
 	}
 	p.searchEditor.SingleLine = true
 	p.pgnSearchEditor.SingleLine = true
+	p.replay = NewReplayView(env.Emit)
+	p.replay.OnBattle = hooks.OnBattle
 	if os.Getenv("CC_GIO_SYNTH_SCROLL") == "1" {
 		p.perf = newFramePerf()
 	}
@@ -150,12 +157,13 @@ func (p *CorpusPage) cancelBus(requestID string) {
 }
 
 // Dispose 页面卸载（07 §2 挂接点）：取消在途扫描/解析与下载（防错 #10——
-// 半成品+ETag sidecar 由复制物保留，重试续传）。
+// 半成品+ETag sidecar 由复制物保留，重试续传）；停重放器自动播放（#G5）。
 func (p *CorpusPage) Dispose() {
 	p.cancelBus(p.store.InFlightID())
 	if p.downloading {
 		p.cancelDownload()
 	}
+	p.replay.Dispose()
 }
 
 // cancelDownload 取消下载（页面取消标志 → 复制物 IsCancelled 探针；总线 Cancel
@@ -191,6 +199,8 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 		p.store.Load(p.newRequestID("corpus-scan"))
 	case PasteTextDone:
 		p.applyPaste(ev.Target, ev.Text, ev.Err)
+	case ReplayTick:
+		p.replay.OnTick(ev)
 	}
 }
 
@@ -232,24 +242,42 @@ func (p *CorpusPage) Layout(gtx layout.Context) layout.Dimensions {
 	if p.perf != nil {
 		defer p.perf.frame(gtx, time.Now())
 	}
+	p.syncReplay()
 	p.handleEvents(gtx)
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, ThemeSurface)
 
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(p.layoutHeader),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			inset := layout.Inset{Left: unit.Dp(16), Right: unit.Dp(16), Bottom: unit.Dp(12)}
-			if !p.store.CorpusExists {
-				return inset.Layout(gtx, p.layoutMissingGuide)
-			}
-			return inset.Layout(gtx, p.layoutMain)
+	dims := layout.Stack{}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(p.layoutHeader),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					inset := layout.Inset{Left: unit.Dp(16), Right: unit.Dp(16), Bottom: unit.Dp(12)}
+					if !p.store.CorpusExists {
+						return inset.Layout(gtx, p.layoutMissingGuide)
+					}
+					return inset.Layout(gtx, p.layoutMain)
+				}),
+			)
+		}),
+		// 顶层弹层：进入对战模式选择（Stack 顶层 + 半透明遮罩，08 §1）
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return p.replay.layoutBattleDialog(gtx)
 		}),
 	)
 	if p.perf != nil {
 		p.perf.overlay(gtx, &p.pgnList, len(p.pgnVisible()))
 	}
 	return dims
+}
+
+// syncReplay 详情换局检测（主 goroutine）：ViewingPuzzle 变化时装载重放器
+// （SetPuzzle 停旧播放、重建走法与中文记谱）。
+func (p *CorpusPage) syncReplay() {
+	if p.replay.Puzzle() == p.store.ViewingPuzzle {
+		return
+	}
+	p.replay.SetPuzzle(p.store.ViewingPuzzle)
 }
 
 // handleEvents 输入事件消费（每帧在 Layout 顶部统一处理）。
@@ -526,14 +554,17 @@ func (p *CorpusPage) layoutRightPanel(gtx layout.Context) layout.Dimensions {
 
 // layoutDetailStub 详情占位（T5'.3 重放器落地）。
 func (p *CorpusPage) layoutDetailStub(gtx layout.Context) layout.Dimensions {
-	v := p.store.ViewingPuzzle
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return p.simpleButton(&p.closeDetailBtn, "返回列表", false)(gtx)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			l := material.Body1(PageTheme, derefStr(v.Title, "未命名"))
-			return layout.Inset{Top: unit.Dp(8)}.Layout(gtx, l.Layout)
+			return layout.Inset{Top: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints = layout.Constraints{
+					Min: image.Point{}, Max: gtx.Constraints.Max,
+				}
+				return p.replay.Layout(gtx)
+			})
 		}),
 	)
 }

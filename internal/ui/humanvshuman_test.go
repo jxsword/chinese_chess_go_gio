@@ -300,3 +300,26 @@ var errFakeStorage = &fakeStorageError{}
 type fakeStorageError struct{}
 
 func (*fakeStorageError) Error() string { return "sqlite not available" }
+
+// T5'.3 进入对战（recordBattle 路由语义）：BattleStart 非 nil → 跳过存档恢复、
+// 以起点 FEN 开局、canSave=false（续战来源不写存档桶——防错 #6）。
+func TestPageBattleStartSkipsRestoreAndSetsFen(t *testing.T) {
+	f := newPageEnvFixture(newPageRepo(), true)
+	f.env.BattleStart = &BattleStart{Fen: "3k5/9/9/9/9/9/9/9/9/4K4 w - - 0 1"}
+	p := NewHumanVsHumanPage(f.env, HumanVsHumanHooks{})
+	defer p.Dispose()
+
+	if len(f.db.loads) != 0 {
+		t.Fatalf("进入对战不应发起取档，实际 %d 次", len(f.db.loads))
+	}
+	if p.store.State().Fen == "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1" {
+		t.Fatal("应以起点 FEN 开局（≠默认初始局面）")
+	}
+	if p.store.VM.IsFinished() {
+		t.Fatal("起点 FEN 合法，不应终局")
+	}
+	p.autoSave.SaveManual()
+	if len(f.db.saves) != 0 {
+		t.Fatal("续战来源不写存档桶（canSave=false，防错 #6）")
+	}
+}

@@ -35,6 +35,10 @@ type GameEnv struct {
 	Cancel func(requestID string)
 	// NewRequestID 生成页面内唯一请求 ID。
 	NewRequestID func(prefix string) string
+	// BattleStart "进入对战"起点（T5'.3，recordBattle 语义；nil = 正常进页）。
+	// 非 nil 时页面跳过存档恢复、以该 FEN 开局，canSave=false（续战来源
+	// 不写存档桶——防错 #6，上游 battleRoute 页面门控同口径）。
+	BattleStart *BattleStart
 }
 
 // CloseHandler 页面可选实现：窗口关闭请求（ClosingEvent，07 §2）——
