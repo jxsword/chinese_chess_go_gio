@@ -227,7 +227,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			l := material.Body2(PageTheme, c.title)
 			l.Color = ThemeSeedDark
-			l.TextSize = unit.Sp(16)
+			l.TextSize = unit.Sp(17)
 			return l.Layout(gtx)
 		}),
 		// 预设 chips（6 项 → 每行 2 项折行；Gio 无 <select>，chips 为同语义呈现）
@@ -257,7 +257,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 			// DR-005：思维链强制关闭固定提示（无开关路径）。
 			l := material.Body2(PageTheme, "思维链已强制关闭（按端点预设发送关闭参数，无需配置）。")
 			l.Color = ThemeSeedDark
-			l.TextSize = unit.Sp(14)
+			l.TextSize = unit.Sp(15)
 			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, l.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -283,7 +283,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 			} else {
 				l.Color = ThemeError
 			}
-			l.TextSize = unit.Sp(14)
+			l.TextSize = unit.Sp(15)
 			return layout.Inset{Top: unit.Dp(4)}.Layout(gtx, l.Layout)
 		}),
 	)
@@ -299,20 +299,20 @@ func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							l := material.Body2(PageTheme, label)
 							l.Color = ThemeOnSurface
-							l.TextSize = unit.Sp(15)
+							l.TextSize = unit.Sp(16)
 							return l.Layout(gtx)
 						}),
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							size := image.Point{X: gtx.Dp(unit.Dp(44)), Y: gtx.Dp(unit.Dp(22))}
+							size := image.Point{X: gtx.Dp(unit.Dp(52)), Y: gtx.Dp(unit.Dp(28))}
 							return c.pasteBtns[pasteIdx].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints = layout.Exact(size)
-								defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(11))).Push(gtx.Ops).Pop()
+								defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(14))).Push(gtx.Ops).Pop()
 								fillRect(gtx.Ops, image.Rectangle{Max: size}, ThemeSurface)
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									l := material.Body2(PageTheme, "粘贴")
 									l.Color = ThemeSeedDark
-									l.TextSize = unit.Sp(11)
+									l.TextSize = unit.Sp(13)
 									return l.Layout(gtx)
 								})
 							})
@@ -330,8 +330,8 @@ func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx
 // layoutEditorBox 白底描边输入框（单行；POC-3 layoutEditor 的正式版收编）。
 func layoutEditorBox(gtx layout.Context, ed *widget.Editor, hint string) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(36))
-	gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(36))
+	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(40))
+	gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(40))
 	return layout.Stack{Alignment: layout.NW}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -342,7 +342,7 @@ func layoutEditorBox(gtx layout.Context, ed *widget.Editor, hint string) layout.
 			return layout.Inset{Left: unit.Dp(6), Right: unit.Dp(6), Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				e := material.Editor(PageTheme, ed, hint)
 				e.Color = ThemeOnSurface
-				e.TextSize = unit.Sp(15)
+				e.TextSize = unit.Sp(16)
 				return e.Layout(gtx)
 			})
 		}),

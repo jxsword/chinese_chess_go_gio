@@ -910,7 +910,8 @@ func (p *LlmVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			w := gtx.Dp(unit.Dp(400))
+			// 含内边距总宽：max(420dp, 窗宽 30%)（同 humanvsllm 口径）。
+			w := max(gtx.Dp(unit.Dp(420)), gtx.Constraints.Max.X*3/10)
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.layoutSidePanel)
@@ -988,7 +989,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.redNote != "" {
 				l := material.Body2(PageTheme, "红方："+p.redNote)
 				l.Color = ThemeOnSurface
-				l.TextSize = unit.Sp(14)
+				l.TextSize = unit.Sp(15)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -997,7 +998,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.blackNote != "" {
 				l := material.Body2(PageTheme, "黑方："+p.blackNote)
 				l.Color = ThemeOnSurface
-				l.TextSize = unit.Sp(14)
+				l.TextSize = unit.Sp(15)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -1006,7 +1007,7 @@ func (p *LlmVsLlmPage) layoutGameInfo(gtx layout.Context) layout.Dimensions {
 			if p.lastMoveText != "" {
 				l := material.Body2(PageTheme, p.lastMoveText)
 				l.Color = ThemeSeedDark
-				l.TextSize = unit.Sp(14)
+				l.TextSize = unit.Sp(15)
 				return l.Layout(gtx)
 			}
 			return layout.Dimensions{}
@@ -1073,7 +1074,7 @@ func (p *LlmVsLlmPage) sideTypeRow(gtx layout.Context, label string, llmBtn, bui
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(40))
 			l := material.Body2(PageTheme, label)
 			l.Color = ThemeOnSurface
-			l.TextSize = unit.Sp(15)
+			l.TextSize = unit.Sp(16)
 			return l.Layout(gtx)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

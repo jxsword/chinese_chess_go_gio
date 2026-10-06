@@ -206,18 +206,18 @@ func layoutOptionChips(gtx layout.Context, width int, opts ...chipOpt) layout.Di
 				bg = ThemeSeed
 				fg = ThemeSurface
 			}
-			return layout.Inset{Right: unit.Dp(4), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Right: unit.Dp(5), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return o.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = w
 					gtx.Constraints.Max.X = w
-					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
-					gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(26))
-					defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(13))).Push(gtx.Ops).Pop()
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(30))
+					gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(30))
+					defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(15))).Push(gtx.Ops).Pop()
 					paint.Fill(gtx.Ops, bg)
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						l := material.Body2(PageTheme, o.label)
 						l.Color = fg
-						l.TextSize = unit.Sp(14)
+						l.TextSize = unit.Sp(15)
 						return l.Layout(gtx)
 					})
 				})

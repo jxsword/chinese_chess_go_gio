@@ -33,14 +33,16 @@ type streamMessageArea struct {
 }
 
 func newStreamMessageArea() *streamMessageArea {
-	return &streamMessageArea{list: layout.List{Axis: layout.Vertical}}
+	// ScrollToEnd：末条目贴底（gio 原生语义——用户上滚后 BeforeEnd 置位即
+	// 停止跟随，新内容不再强拉）；替代首轮手写 First=n-1（把末行顶到视口
+	// 顶部，长行被上缘裁切——M4' 验收反馈第 3 轮修正）。
+	return &streamMessageArea{list: layout.List{Axis: layout.Vertical, ScrollToEnd: true}}
 }
 
 // begin 开启一条流式行（label 为前缀，如"黑方"）。
 func (a *streamMessageArea) begin(label string) {
 	a.lines = append(a.lines, label+" ")
 	a.streaming = true
-	a.scrollToEnd()
 }
 
 // appendChunk 追加增量（仅 Content 正文——思维链恒关，DR-005；Reasoning 不呈现）。
@@ -60,21 +62,12 @@ func (a *streamMessageArea) endStream() {
 // appendLine 追加备注/否决链条目（独立行）。
 func (a *streamMessageArea) appendLine(line string) {
 	a.lines = append(a.lines, line)
-	a.scrollToEnd()
 }
 
 // clear 清空（新游戏路径）。
 func (a *streamMessageArea) clear() {
 	a.lines = nil
 	a.streaming = false
-}
-
-// scrollToEnd 新行到达时置底（行粒度；chunk 追加不打断阅读）。
-func (a *streamMessageArea) scrollToEnd() {
-	if n := len(a.lines); n > 1 {
-		a.list.Position.First = n - 1
-		a.list.Position.Offset = 0
-	}
 }
 
 // layout 渲染滚动消息区。
@@ -89,8 +82,8 @@ func (a *streamMessageArea) layout(gtx layout.Context) layout.Dimensions {
 	return a.list.Layout(gtx, n, func(gtx layout.Context, i int) layout.Dimensions {
 		l := material.Body2(PageTheme, a.lines[i])
 		l.Color = ThemeOnSurface
-		l.TextSize = unit.Sp(14)
-		return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, l.Layout)
+		l.TextSize = unit.Sp(15)
+		return layout.Inset{Bottom: unit.Dp(3)}.Layout(gtx, l.Layout)
 	})
 }
 
@@ -126,7 +119,7 @@ func (c *choiceRow) draw(gtx layout.Context, title string, current int, titleWid
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(titleWidth))
 			l := material.Body2(PageTheme, title)
 			l.Color = ThemeOnSurface
-			l.TextSize = unit.Sp(15)
+			l.TextSize = unit.Sp(16)
 			return l.Layout(gtx)
 		}),
 	}
@@ -156,16 +149,16 @@ func thinkingSuffix(startedAt time.Time, attemptN, attemptTotal int) string {
 func sectionTitle(gtx layout.Context, s string) layout.Dimensions {
 	l := material.Body2(PageTheme, s)
 	l.Color = ThemeSeedDark
-	l.TextSize = unit.Sp(16)
-	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(2)}.Layout(gtx, l.Layout)
+	l.TextSize = unit.Sp(17)
+	return layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(4)}.Layout(gtx, l.Layout)
 }
 
 // hintLine 弱化提示行（镜像提示/固定提示语）。
 func hintLine(gtx layout.Context, s string) layout.Dimensions {
 	l := material.Body2(PageTheme, s)
 	l.Color = ThemeSeedDark
-	l.TextSize = unit.Sp(14)
-	return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, l.Layout)
+	l.TextSize = unit.Sp(15)
+	return layout.Inset{Top: unit.Dp(3)}.Layout(gtx, l.Layout)
 }
 
 // messageAreaCard 流式消息区卡片容器（定高滚动区）。
@@ -175,7 +168,7 @@ func messageAreaCard(gtx layout.Context, area *streamMessageArea, title string) 
 			return sectionTitle(gtx, title)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(unit.Dp(150))
+			h := gtx.Dp(unit.Dp(170))
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			gtx.Constraints.Min.Y = h
 			gtx.Constraints.Max.Y = h
