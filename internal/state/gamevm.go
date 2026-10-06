@@ -303,28 +303,9 @@ func (vm *GameVm) executeMove(move rules.Move) {
 	applied := vm.board.ApplyMove(rules.Move{From: from, To: to})
 	vm.history = append(vm.history, rules.Move{From: applied.From, To: applied.To, Piece: piece, Captured: applied.Captured})
 	vm.fenHistory = append(vm.fenHistory, vm.board.ToFen())
-	vm.commit(GameSnapshot{
-		Fen:          vm.board.ToFen(),
-		MoveHistory:  append([]rules.Move(nil), vm.history...),
-		FenHistory:   append([]string(nil), vm.fenHistory...),
-		IsRedTurn:    vm.board.IsRedTurn(),
-		IsCheck:      vm.board.IsCheck(vm.board.Turn()),
-		Result:       vm.checkmateResult(),
-		Selected:     nil,
-		LegalTargets: nil,
-		LastMove:     &rules.Move{From: applied.From, To: applied.To, Captured: applied.Captured},
-	})
+	last := rules.Move{From: applied.From, To: applied.To, Captured: applied.Captured}
+	vm.commit(vm.buildSnapshot(nil, nil, &last))
 	vm.fireHistoryGrow()
-}
-
-// checkmateResult 落子后的终局判定（沿 buildSnapshot 口径：将死/困毙 → 走子方胜）。
-func (vm *GameVm) checkmateResult() *GameResult {
-	turn := vm.board.Turn()
-	if vm.board.IsCheckmate(turn) || vm.board.IsStalemate(turn) {
-		r := resultOfLoser(turn)
-		return &r
-	}
-	return nil
 }
 
 // PlayMove 强校验走子入口（供 AI/LLM 应手，board_vm.dart:208-217）。

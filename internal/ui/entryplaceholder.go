@@ -16,7 +16,6 @@ type EntryPlaceholder struct {
 	Title  string
 	OnBack func()
 	back   widget.Clickable
-	inited bool
 }
 
 // NewEntryPlaceholder 创建占位页。

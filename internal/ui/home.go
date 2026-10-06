@@ -38,7 +38,7 @@ type entryDesc struct {
 
 // homeEntries 08 §2 七入口（顺序即页面列示顺序）。
 var homeEntries = []entryDesc{
-	{EntryEndgameSelect, "残局选关", "关卡挑战 · 演示播放（分类计数 M5' 接入）"},
+	{EntryEndgameSelect, "残局选关", "关卡挑战 · 演示播放"},
 	{EntryHumanVsAi, "人机对战", "内置 AI 引擎 · 三档难度"},
 	{EntryHumanVsLlm, "人机 LLM", "与大模型对弈"},
 	{EntryLlmVsLlm, "LLM vs LLM", "双大模型对战观演"},
