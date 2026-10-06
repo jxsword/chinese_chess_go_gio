@@ -38,6 +38,33 @@
 - §6.3 铁律自检：#G1 六包 import 面无 gio/新增 net-http（grep 机器验证，net/http 命中均为复制物既有口径）；#G2 六包+cmd/eval M3' diff=零改动（机器验证）；#G3 EngineClient goroutine 只经 env.Emit 回总线（env 回调仅构造期写定）；#G4 RouteHumanVsAi 工厂页；#G5 AI/restore/save 请求均带 requestId，取消=Runner ctx+总线双收口；#G8 ui 无网络出口。
 - P3 登记：无新增（KG-008 双人页注记对 chips 同样适用，已在人机页收口）。
 
+## M3' 验收反馈修复轮（2026-10-06，§6.2 流程）
+
+用户反馈三项（执黑不可点/难度不可点/AI 不显示走棋疑似绑低难度），X11+xdotool
+截图驱动真实应用实证（证据链 ~/poc_evidence/m3/），两项真缺陷 + 一项行为澄清：
+
+1. **【修复】执黑/难度 chips 不可点击**：自绘 chip 只画了圆角矩形，从未注册
+   指针输入区——widget.Clickable 须经 `Clickable.Layout`（或 clip 内显式
+   Add）注册手势，否则是死按钮。改经 Clickable.Layout 注册后实测：执黑切换
+   （AI 红先走子）、专家/大师档切换（高亮+对手名联动）均生效。
+2. **【修复】侧板卡片右缘被窗口裁掉**（大师 chip 半可见，M2' 双人页同款）：
+   layoutBody 的 Rigid 子项把 280dp 约束加在 UniformInset(8) 内层，实际占位
+   280dp+16dp，整页横向溢出 ~24px，卡片右缘溢出窗口。约束移到 Inset 外层
+   （280dp=含内边距总宽），两页一并修复；chip 宽 44→42dp 后五个难度 chip
+   完整可见。
+3. **【澄清·非缺陷】"AI 不走棋/疑似绑定低难度"**：插桩（boardclick 日志）+
+   截图实证 AI 链路正常——玩家走子→Runner 搜索→PlayMove 落盘→回合回玩家
+   （步数 2→4、lastMove 高亮、执黑时 AI 红先均截图验证）。高级/专家应答快是
+   引擎特性：timeMs 是上限不是下限，深度 4/5 约 0.2~1s 即完成（与上游引擎
+   行为一致）；"AI 正在思考"为短暂时呈（大师档实测约 1.5s 肉眼可见）；难度档
+   不持久化（页级状态，刷新回默认高级，上游同款）。
+
+排障副产物：WSLg Xwayland 下 xdotool 注入点击 = 请求坐标 +12px（窗口左边框），
+截屏取证链用 `env -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR` 强制 X11 后端；
+应用在真实鼠标输入下无此问题。
+
+回归：gofmt/vet/`go test ./internal/{ui,app,state}/ -race` 全绿（commit 4b71c4c）。
+
 ## M3' 已知问题与偏离注记
 
 - 语义偏离 1（有意，对齐上游语义经核实）：**取消入口=无独立取消按钮**——上游人机页无独立"取消思考"按钮，思考中悔棋/新游戏/返回即取消在途请求（防错 #4）；08 §5 已同步注记。
