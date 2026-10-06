@@ -8,7 +8,13 @@ package app
 //     关闭请求经 ClosingEvent，可 Abort 挂起→放行——07 §2 表的修订）
 //   - minimize ← 留 M2' POC 核实（X11/Wayland 平台差异，07 §2 表）
 
-import "testing"
+import (
+	"testing"
+
+	"gioui.org/layout"
+
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
+)
 
 // fakeLifecycleHandler 记录派发序列。
 type fakeLifecycleHandler struct {
@@ -65,3 +71,43 @@ func TestLifecycle_EmptyHandlersNoop(t *testing.T) {
 	DispatchCloseRequest(lr)
 	DispatchMinimize(lr)
 }
+
+// autosaveBridge 桥接（T2'.2，07 §2 落地口径）：blur/minimize → 总线广播；
+// close → 当前页 CloseHandler.OnClose()（同步保存，不经总线）。
+func TestAutosaveBridge_Phases(t *testing.T) {
+	bus := &state.LifecycleBus{}
+	calls := 0
+	unsub := bus.Subscribe(func() { calls++ })
+
+	closeCalled := false
+	w := &Window{router: NewRouter(), lifecycle: NewLifecycleRouter()}
+	w.router.Register(RouteHumanVsHuman, closeHandlerPage{onClose: func() { closeCalled = true }})
+	if err := w.router.Navigate(RouteHumanVsHuman); err != nil {
+		t.Fatal(err)
+	}
+	bridge := &autosaveBridge{bus: bus, window: w}
+
+	bridge.OnBlur()
+	bridge.OnMinimize()
+	if calls != 2 {
+		t.Fatalf("blur/minimize 应各广播一次总线：calls=%d", calls)
+	}
+	bridge.OnClose()
+	if !closeCalled {
+		t.Fatal("close 应派发到当前页 CloseHandler")
+	}
+
+	unsub()
+	bridge.OnBlur()
+	if calls != 2 {
+		t.Fatalf("注销后不应再广播：calls=%d", calls)
+	}
+}
+
+// closeHandlerPage ui.CloseHandler 结构化满足的最小页面（不渲染）。
+type closeHandlerPage struct {
+	onClose func()
+}
+
+func (p closeHandlerPage) Layout(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }
+func (p closeHandlerPage) OnClose()                                    { p.onClose() }

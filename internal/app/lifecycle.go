@@ -11,7 +11,12 @@ package app
 //   - minimize ← gio 无直接窗口事件（system.ActionMinimize 仅为发起动作），
 //     各平台覆盖面留 M2' POC 核实；派发通道先就位
 
-import "gioui.org/io/key"
+import (
+	"gioui.org/io/key"
+
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
+	"github.com/jxsword/chinese_chess_go_gio/internal/ui"
+)
 
 // LifecycleHandler 生命周期挂接点（M2' 由 state 自动保存状态机实现）。
 type LifecycleHandler interface {
@@ -48,10 +53,35 @@ func DispatchCloseRequest(lr *LifecycleRouter) {
 	}
 }
 
-// DispatchMinimize 最小化翻译（事件源 M2' 核实接线）。
+// DispatchMinimize 最小化翻译（事件源 M2' 核实：gio 无直接窗口事件；
+// WSLg 实测最小化伴随失焦，blur 相位覆盖，07 §2 表）。
 func DispatchMinimize(lr *LifecycleRouter) {
 	for _, h := range lr.handlers {
 		h.OnMinimize()
+	}
+}
+
+// autosaveBridge 生命周期 → state 自动保存桥接（07 §2 落地口径）：
+// blur/minimize → LifecycleBus.Notify()（广播给当前页 GameAutoSave）；
+// close → 当前页 ui.CloseHandler.OnClose()（同步保存 best-effort 后放行，
+// 不走总线——总线写入为 fire-and-forget，退出前可能未落盘）。
+type autosaveBridge struct {
+	bus    *state.LifecycleBus
+	window *Window
+}
+
+func (b *autosaveBridge) OnBlur() { b.bus.Notify() }
+
+// OnMinimize gio 无直接窗口事件源（07 §2 minimize 行：system.ActionMinimize 仅为
+// 发起动作；WSLg 实测最小化伴随失焦，blur 相位覆盖）。保留相位派发点，直接并入
+// 总线广播。
+func (b *autosaveBridge) OnMinimize() { b.bus.Notify() }
+func (b *autosaveBridge) OnClose() {
+	if b.window == nil {
+		return
+	}
+	if p, ok := b.window.router.Page().(ui.CloseHandler); ok {
+		p.OnClose()
 	}
 }
 

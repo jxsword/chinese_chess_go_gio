@@ -4,7 +4,9 @@
 package app
 
 import (
+	"fmt"
 	"log"
+	"sync/atomic"
 
 	"gioui.org/app"
 	"gioui.org/io/key"
@@ -41,6 +43,9 @@ type Window struct {
 	//（铁律 #G4 例外面，上游同口径）。
 	store    *DataStore
 	settings *state.GlobalSettings
+	// 自动保存生命周期总线（T2'.2，07 §2）：blur/minimize 相位 → 各页 GameAutoSave。
+	autoSaveBus *state.LifecycleBus
+	repo        *gameRepo
 }
 
 // Store 存储装配（M2' 起对局页经 repo 适配器使用）。
@@ -152,6 +157,27 @@ func (w *Window) Run(page ui.Page) error {
 	}
 }
 
+// requestSeq 异步请求 ID 序列（requestId 全局唯一，铁律 #G5）。
+var requestSeq atomic.Int64
+
+// newRequestID 生成页面异步请求 ID（前缀-序号）。
+func newRequestID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, requestSeq.Add(1))
+}
+
+// gameEnv 构造对局页环境（T2'.2：ui 不 import app 的解耦点）。
+func (w *Window) gameEnv() ui.GameEnv {
+	return ui.GameEnv{
+		Settings:     w.settings,
+		Bus:          w.autoSaveBus,
+		Repo:         w.repo,
+		DB:           w.repo,
+		Emit:         w.emitFunc(),
+		Cancel:       w.Cancel,
+		NewRequestID: newRequestID,
+	}
+}
+
 // Run 组装主页 + 7 入口路由并进入事件循环（main.go 调用）。
 func Run(cfg Config) error {
 	w := OpenWindow(WindowConfig{
@@ -164,6 +190,10 @@ func Run(cfg Config) error {
 	w.settings = state.NewGlobalSettings(w.store.Settings())
 	w.settings.Load()
 	defer w.store.Close()
+	// 自动保存生命周期总线 + repo 异步代理（T2'.2，07 §2）。
+	w.autoSaveBus = &state.LifecycleBus{}
+	w.repo = newGameRepo(w.store, w.emitFunc())
+	w.lifecycle.Add(&autosaveBridge{bus: w.autoSaveBus, window: w})
 	w.Router().Register(RouteHome, ui.NewHomePage(ui.HomePageHooks{
 		OnNavigate: func(id ui.EntryID) {
 			if err := w.Navigate(routeOfEntry(id)); err != nil {
