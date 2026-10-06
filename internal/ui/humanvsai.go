@@ -106,17 +106,19 @@ func (p *HumanVsAiPage) layoutChipsRow(gtx layout.Context, opts ...chipOpt) layo
 				fg = ThemeSurface
 			}
 			return layout.Inset{Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				size := image.Point{X: gtx.Dp(unit.Dp(44)), Y: gtx.Dp(unit.Dp(26))}
-				defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(13))).Push(gtx.Ops).Pop()
-				paint.Fill(gtx.Ops, bg)
-				for o.click.Clicked(gtx) {
-				}
-				gtx.Constraints = layout.Exact(size)
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					l := material.Body2(PageTheme, o.label)
-					l.Color = fg
-					l.TextSize = unit.Sp(12)
-					return l.Layout(gtx)
+				size := image.Point{X: gtx.Dp(unit.Dp(42)), Y: gtx.Dp(unit.Dp(26))}
+				// click.Layout 注册指针输入区（自绘 chip 必须经 Clickable.Layout
+				// 或显式 Add——否则点击不生效）
+				return o.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints = layout.Exact(size)
+					defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(13))).Push(gtx.Ops).Pop()
+					paint.Fill(gtx.Ops, bg)
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						l := material.Body2(PageTheme, o.label)
+						l.Color = fg
+						l.TextSize = unit.Sp(12)
+						return l.Layout(gtx)
+					})
 				})
 			})
 		}))
@@ -616,6 +618,8 @@ func (p *HumanVsAiPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 280dp 为含 8dp 内边距的总宽（约束加在 Inset 外层——加在内层会
+			// 溢出窗口右缘，侧板卡片被裁，复审验收实证）
 			w := gtx.Dp(unit.Dp(280))
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w

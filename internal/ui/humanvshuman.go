@@ -356,6 +356,8 @@ func (p *HumanVsHumanPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 280dp 为含 8dp 内边距的总宽（约束加在 Inset 外层——加在内层会
+			// 溢出窗口右缘，侧板卡片被裁，M3' 验收实证后一并修复）
 			w := gtx.Dp(unit.Dp(280))
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
