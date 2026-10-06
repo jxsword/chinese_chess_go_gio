@@ -43,4 +43,8 @@ jobs:
       - name: go vet
         run: go vet ./...
       - name: go test -race（质量门标准口径，全平台无例外）
+        env:
+          # KG-007：单核饥饿下复制物 transport 超时测试偶发失败（定时器 goroutine
+          # 饥饿）；runner 实际多核，固化下限保证定时器可调度。详见 KNOWN_ISSUES。
+          GOMAXPROCS: "2"
         run: go test ./... -race
