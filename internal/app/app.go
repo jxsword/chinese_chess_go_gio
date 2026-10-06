@@ -204,8 +204,19 @@ func Run(cfg Config) error {
 			log.Println("app: 全局设置入口（M2' 设置弹窗落地）")
 		},
 	}))
-	// 7 入口页 M2' 起逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsAi, RouteHumanVsLlm, RouteLlmVsLlm, RouteHumanVsHuman, RouteStudio, RouteCorpus} {
+	// 双人对弈页（T2'.4）：工厂页——每次导航进入创建新对局（铁律 #G4 每局一实例），
+	// 离开 Dispose 触发离开保存（07 §2）。
+	w.Router().RegisterFactory(RouteHumanVsHuman, func() ui.Page {
+		return ui.NewHumanVsHumanPage(w.gameEnv(), ui.HumanVsHumanHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		})
+	})
+	// 其余 6 入口页 M3' 起逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsAi, RouteHumanVsLlm, RouteLlmVsLlm, RouteStudio, RouteCorpus} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),

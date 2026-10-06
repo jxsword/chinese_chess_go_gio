@@ -129,3 +129,53 @@ func TestRouter_HomeSevenEntriesNavigable(t *testing.T) {
 		t.Fatalf("在页（棋谱库）dispose = %d, want 0", got)
 	}
 }
+
+// 工厂页（T2'.4，铁律 #G4）：每次导航进入创建新实例，离开 dispose 旧实例，
+// 再次进入得到全新页面（对局页"每局一实例"）。
+func TestRouter_FactoryCreatesFreshPagePerEntry(t *testing.T) {
+	r := NewRouter()
+	home := &fakePage{}
+	r.Register(RouteHome, home)
+	created := 0
+	var instances []*fakePage
+	r.RegisterFactory(RouteHumanVsHuman, func() ui.Page {
+		created++
+		p := &fakePage{}
+		instances = append(instances, p)
+		return p
+	})
+
+	if err := r.Navigate(RouteHumanVsHuman); err != nil {
+		t.Fatal(err)
+	}
+	if created != 1 || r.Page() != instances[0] {
+		t.Fatal("首次进入应创建实例 1")
+	}
+	if err := r.Navigate(RouteHome); err != nil {
+		t.Fatal(err)
+	}
+	if instances[0].disposed != 1 {
+		t.Fatalf("离开工厂页应 dispose: %d", instances[0].disposed)
+	}
+
+	if err := r.Navigate(RouteHumanVsHuman); err != nil {
+		t.Fatal(err)
+	}
+	if created != 2 || r.Page() != instances[1] {
+		t.Fatal("再次进入应创建全新实例（每局一实例）")
+	}
+	if instances[1].disposed != 0 {
+		t.Fatal("新实例不应被 dispose")
+	}
+
+	// 工厂页 navigate 目标不可达：状态不变
+	if err := r.Navigate("nope"); !errors.Is(err, ErrRouteNotRegistered) {
+		t.Fatalf("未注册路由应返回 ErrRouteNotRegistered: %v", err)
+	}
+	if r.Current() != RouteHumanVsHuman {
+		t.Fatal("失败导航不应改变当前路由")
+	}
+	if instances[1].disposed != 0 {
+		t.Fatal("失败导航不应 dispose 当前页")
+	}
+}
