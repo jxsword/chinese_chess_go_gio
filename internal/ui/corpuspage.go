@@ -11,8 +11,10 @@ package ui
 import (
 	"fmt"
 	"image"
+	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"gioui.org/layout"
 	"gioui.org/op/clip"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/parsers"
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
+	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 )
 
 // CorpusDownloadURL 语料包下载地址（corpus_paths.dart:34-35，GitHub Release
@@ -71,6 +74,9 @@ type CorpusPage struct {
 	cancelDownloadBtn widget.Clickable
 	closeDetailBtn    widget.Clickable
 	searchEditor      widget.Editor
+	pgnSearchEditor   widget.Editor
+	pasteSearchBtn    widget.Clickable
+	pastePgnBtn       widget.Clickable
 	onlyEndgame       widget.Bool
 	diffClicks        [6]widget.Clickable
 	sortClicks        [3]widget.Clickable
@@ -81,6 +87,15 @@ type CorpusPage struct {
 	list      layout.List
 	pgnList   layout.List
 	rowClicks map[int]*widget.Clickable
+	pgnClicks map[int]*widget.Clickable
+
+	// PGN 面板缓存：140k 级索引的过滤结果不逐帧重算（ dirty 置位后重算一次）
+	pgnFiltered []storage.PgnIndexEntry
+	pgnDirty    bool
+
+	// 性能实测（T5'.2 验证门，POC-4 口径；CC_GIO_SYNTH_SCROLL=1 启用，
+	// 非交互路径）：自动滚动 + 帧开销/FPS 统计浮层。
+	perf *framePerf
 
 	// PGN 搜索（T5'.2）与详情视图（T5'.3）控件随后续任务落位
 }
@@ -94,12 +109,21 @@ func NewCorpusPage(env CorpusEnv, hooks CorpusHooks) *CorpusPage {
 		list:      layout.List{Axis: layout.Vertical},
 		pgnList:   layout.List{Axis: layout.Vertical},
 		rowClicks: map[int]*widget.Clickable{},
+		pgnClicks: map[int]*widget.Clickable{},
+	}
+	p.searchEditor.SingleLine = true
+	p.pgnSearchEditor.SingleLine = true
+	if os.Getenv("CC_GIO_SYNTH_SCROLL") == "1" {
+		p.perf = newFramePerf()
 	}
 	p.downloader = NewCorpusDownloader(env)
-	p.store = state.NewCorpusBrowser(NewCorpusIO(env.Root), goCorpusDriver{}, func(requestID string, ev state.CorpusEvent) {
+	io := env.IO
+	if io == nil {
+		io = NewCorpusIO(env.Root)
+	}
+	p.store = state.NewCorpusBrowser(io, goCorpusDriver{}, func(requestID string, ev state.CorpusEvent) {
 		env.Emit(requestID, ev, nil)
 	})
-	p.searchEditor.SingleLine = true
 	p.store.Load(p.newRequestID("corpus-scan"))
 	return p
 }
@@ -147,6 +171,7 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 	switch ev := payload.(type) {
 	case state.CorpusEvent:
 		p.store.Apply(ev)
+		p.pgnDirty = true // 分类/索引/单局回执都可能改 PGN 视图
 	case CorpusDownloadProgress:
 		if ev.RequestID == p.downloadID {
 			p.receivedBytes = ev.Received
@@ -164,6 +189,34 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 		}
 		p.message = "下载完成，正在重新扫描语料目录…"
 		p.store.Load(p.newRequestID("corpus-scan"))
+	case PasteTextDone:
+		p.applyPaste(ev.Target, ev.Text, ev.Err)
+	}
+}
+
+// 搜索框粘贴目标（PasteTextDone.Target 定向回填；KG-004 口径）。
+const (
+	pasteTargetCorpusSearch = iota
+	pasteTargetPgnSearch
+)
+
+// requestPaste 发起异步粘贴（I/O 在后台 goroutine，回执经事件总线——铁律 #G3）。
+func (p *CorpusPage) requestPaste(target int) {
+	pasteFromWindowsAsync(func(text string, err error) {
+		p.emitBus("", PasteTextDone{Target: target, Text: text, Err: err})
+	})
+}
+
+// applyPaste 粘贴回填（主 goroutine）。
+func (p *CorpusPage) applyPaste(target int, text string, err error) {
+	if err != nil || strings.TrimSpace(text) == "" {
+		return
+	}
+	switch target {
+	case pasteTargetCorpusSearch:
+		p.searchEditor.SetText(text)
+	case pasteTargetPgnSearch:
+		p.pgnSearchEditor.SetText(text)
 	}
 }
 
@@ -176,11 +229,14 @@ func (p *CorpusPage) visible() []state.VisibleItem {
 
 // Layout 页面骨架（CorpusBrowserPage.tsx）：header + 引导/主区。
 func (p *CorpusPage) Layout(gtx layout.Context) layout.Dimensions {
+	if p.perf != nil {
+		defer p.perf.frame(gtx, time.Now())
+	}
 	p.handleEvents(gtx)
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, ThemeSurface)
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(p.layoutHeader),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			inset := layout.Inset{Left: unit.Dp(16), Right: unit.Dp(16), Bottom: unit.Dp(12)}
@@ -190,6 +246,10 @@ func (p *CorpusPage) Layout(gtx layout.Context) layout.Dimensions {
 			return inset.Layout(gtx, p.layoutMain)
 		}),
 	)
+	if p.perf != nil {
+		p.perf.overlay(gtx, &p.pgnList, len(p.pgnVisible()))
+	}
+	return dims
 }
 
 // handleEvents 输入事件消费（每帧在 Layout 顶部统一处理）。
@@ -202,6 +262,29 @@ func (p *CorpusPage) handleEvents(gtx layout.Context) {
 	if q := strings.TrimSpace(p.searchEditor.Text()); q != p.store.Query {
 		p.store.SetQuery(q)
 		p.rowClicks = map[int]*widget.Clickable{}
+	}
+	// PGN 搜索：过滤 + 跳回列表顶部（08 §8 注记①：搜索跳转）
+	if q := strings.TrimSpace(p.pgnSearchEditor.Text()); q != p.store.PgnQuery {
+		p.store.SetPgnQuery(q)
+		p.pgnDirty = true
+		p.pgnList.Position.First = 0
+	}
+	// 粘贴按钮（KG-004：WSLg 中文搜索词经 Windows 剪贴板可靠输入）
+	if p.pasteSearchBtn.Clicked(gtx) {
+		p.requestPaste(pasteTargetCorpusSearch)
+	}
+	if p.pastePgnBtn.Clicked(gtx) {
+		p.requestPaste(pasteTargetPgnSearch)
+	}
+	// PGN 行点击
+	if p.store.PgnPath != "" && p.store.ViewingPuzzle == nil && !p.store.PgnLoading {
+		filtered := p.pgnVisible()
+		for i := range filtered {
+			if c := p.pgnClicks[i]; c != nil && c.Clicked(gtx) {
+				p.cancelBus(p.store.InFlightID())
+				p.store.OpenPgnGame(p.newRequestID("corpus-pgngame"), filtered[i])
+			}
+		}
 	}
 	if p.onlyEndgame.Update(gtx) {
 		p.store.SetOnlyEndgame(p.onlyEndgame.Value)
@@ -455,7 +538,19 @@ func (p *CorpusPage) layoutDetailStub(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// layoutPgnPanel PGN 大文件分类面板（T5'.2 落位：虚拟化长列表 + 搜索跳转）。
+// pgnVisible PGN 过滤索引（dirty 置位后重算一次；140k 级逐帧过滤不可接受）。
+func (p *CorpusPage) pgnVisible() []storage.PgnIndexEntry {
+	if p.pgnDirty {
+		p.pgnFiltered = state.PgnFilter(p.store.PgnIndex, p.store.PgnQuery)
+		p.pgnClicks = map[int]*widget.Clickable{}
+		p.pgnDirty = false
+	}
+	return p.pgnFiltered
+}
+
+// layoutPgnPanel PGN 大文件分类面板（T5'.2，08 §8 落地注记①）：搜索 +
+// 虚拟化连续长列表（KG-002 口径：自然手势滚动+搜索跳转；上游 DOM 分页的
+// pgnPageSlice 语义保留于状态层，Gio UI 不消费分页控件）。
 func (p *CorpusPage) layoutPgnPanel(gtx layout.Context) layout.Dimensions {
 	if p.store.PgnLoading {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -464,9 +559,70 @@ func (p *CorpusPage) layoutPgnPanel(gtx layout.Context) layout.Dimensions {
 			return l.Layout(gtx)
 		})
 	}
-	l := material.Body2(PageTheme, "PGN 大文件浏览将在 T5'.2 落地")
-	l.Color = ThemeSeedDark
-	return l.Layout(gtx)
+	filtered := p.pgnVisible()
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return layoutEditorBox(gtx, &p.pgnSearchEditor, "按赛事/棋手搜索")
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, p.smallPasteButton(&p.pastePgnBtn))
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					l := material.Body2(PageTheme, fmt.Sprintf("共 %d 局", len(filtered)))
+					l.Color = ThemeSeedDark
+					return layout.Inset{Left: unit.Dp(10)}.Layout(gtx, l.Layout)
+				}),
+			)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if len(filtered) != 0 {
+				return layout.Dimensions{}
+			}
+			l := material.Body2(PageTheme, "无匹配对局")
+			l.Color = ThemeSeedDark
+			return layout.Inset{Top: unit.Dp(8)}.Layout(gtx, l.Layout)
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return p.pgnList.Layout(gtx, len(filtered), func(gtx layout.Context, i int) layout.Dimensions {
+				entry := filtered[i]
+				return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return p.pgnClicker(i).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(8))).Push(gtx.Ops).Pop()
+						paint.Fill(gtx.Ops, ThemeSurfaceDim)
+						return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									l := material.Body2(PageTheme, parsers.PgnGameIndexTitle(entry))
+									l.TextSize = unit.Sp(14)
+									l.Color = ThemeOnSurface
+									return l.Layout(gtx)
+								}),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									l := material.Body2(PageTheme, fmt.Sprintf("%s vs %s",
+										derefStr(entry.Red, "?"), derefStr(entry.Black, "?")))
+									l.TextSize = unit.Sp(12)
+									l.Color = ThemeSeedDark
+									return l.Layout(gtx)
+								}),
+							)
+						})
+					})
+				})
+			})
+		}),
+	)
+}
+
+// pgnClicker PGN 行点击器（懒分配）。
+func (p *CorpusPage) pgnClicker(i int) *widget.Clickable {
+	c, ok := p.pgnClicks[i]
+	if !ok {
+		c = &widget.Clickable{}
+		p.pgnClicks[i] = c
+	}
+	return c
 }
 
 // layoutXqfPanel XQF 分类面板：筛选/排序/进度/列表（XqfPanel）。
@@ -483,6 +639,9 @@ func (p *CorpusPage) layoutXqfPanel(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layoutEditorBox(gtx, &p.searchEditor, "搜索棋谱名称")
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, p.smallPasteButton(&p.pasteSearchBtn))
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Left: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -568,6 +727,24 @@ func (p *CorpusPage) rowClicker(i int) *widget.Clickable {
 		p.rowClicks[i] = c
 	}
 	return c
+}
+
+// smallPasteButton 搜索框旁的粘贴按钮（KG-004：中文搜索词经 Windows 剪贴板；
+// M4' 配置卡粘贴按钮同款 52×28dp）。
+func (p *CorpusPage) smallPasteButton(c *widget.Clickable) func(gtx layout.Context) layout.Dimensions {
+	return func(gtx layout.Context) layout.Dimensions {
+		btn := material.Button(PageTheme, c, "粘贴")
+		btn.Background = ThemeSurfaceDim
+		btn.Color = ThemeSeedDark
+		btn.TextSize = unit.Sp(13)
+		return layout.Inset{Left: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(52))
+			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(52))
+			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(28))
+			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(28))
+			return btn.Layout(gtx)
+		})
+	}
 }
 
 // simpleButton 通用按钮（页面共用口径，与对局页同款）。

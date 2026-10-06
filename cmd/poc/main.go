@@ -11,10 +11,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"gioui.org/unit"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/app"
+	"github.com/jxsword/chinese_chess_go_gio/internal/parsers"
+	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 	"github.com/jxsword/chinese_chess_go_gio/internal/ui"
 )
 
@@ -42,22 +45,72 @@ func main() {
 }
 
 // demoCorpus M5' 语料库页渲染冒烟（POC 专用，正式页面走 go run .）：
-// CC_CORPUS_ROOT 指向语料根目录（空 = 未找到本地语料的下载引导分支）。
+// CC_CORPUS_ROOT 指向语料根目录（空 = 未找到本地语料的下载引导分支）；
+// CC_GIO_SYNTH_PGN=N 注入 N 局合成 PGN 索引（长列表性能实测，POC-4 口径）。
 func demoCorpus() {
 	w := app.OpenWindow(app.WindowConfig{Title: "M5' corpus", Width: unit.Dp(1024), Height: unit.Dp(768)})
 	seq := 0
-	page := ui.NewCorpusPage(ui.CorpusEnv{
+	env := ui.CorpusEnv{
 		Emit: func(id string, payload any, err error) {
 			w.Emit(app.AppEvent{RequestID: id, Payload: payload, Err: err})
 		},
 		Cancel:       w.Cancel,
 		NewRequestID: func(prefix string) string { seq++; return fmt.Sprintf("%s-%d", prefix, seq) },
 		Root:         func() string { return os.Getenv("CC_CORPUS_ROOT") },
-	}, ui.CorpusHooks{})
+	}
+	if n := synthCount(); n > 0 {
+		env.IO = synthIO{n: n}
+	}
+	page := ui.NewCorpusPage(env, ui.CorpusHooks{})
 	if err := w.Run(page); err != nil {
 		fmt.Fprintln(os.Stderr, "poc:", err)
 		os.Exit(1)
 	}
+}
+
+func synthCount() int {
+	n, _ := strconv.Atoi(os.Getenv("CC_GIO_SYNTH_PGN"))
+	return n
+}
+
+// synthIO 合成 PGN 索引（性能实测专用）：单一 PGN 分类 + N 局确定性条目。
+type synthIO struct{ n int }
+
+func (s synthIO) Scan() (storage.CorpusScanResult, error) {
+	return storage.CorpusScanResult{
+		Root:   "/synth",
+		Exists: true,
+		Categories: []storage.CorpusCategory{
+			{Name: "合成 14 万局", Path: "/synth/big.pgns", Kind: storage.KindPgnFile, Source: "synth/ICCS"},
+		},
+	}, nil
+}
+
+func (synthIO) ListEntries(categoryPath, categoryName string) ([]storage.CorpusEntry, error) {
+	return nil, nil
+}
+
+func (synthIO) ReadFiles(paths []string) ([]storage.CorpusFileBytes, error) {
+	return nil, nil
+}
+
+func (synthIO) ParseBatch(files []parsers.ParseFileInput) ([]*parsers.ParsedPuzzle, error) {
+	return nil, nil
+}
+
+func (s synthIO) PgnIndex(path string) ([]storage.PgnIndexEntry, error) {
+	out := make([]storage.PgnIndexEntry, s.n)
+	for i := range out {
+		event := fmt.Sprintf("对局 %d", i)
+		red := fmt.Sprintf("红%d", i)
+		black := fmt.Sprintf("黑%d", i)
+		out[i] = storage.PgnIndexEntry{Offset: int64(i) * 100, Length: 100, Event: &event, Red: &red, Black: &black}
+	}
+	return out, nil
+}
+
+func (synthIO) ReadPgnGame(path string, entry storage.PgnIndexEntry) (string, error) {
+	return "", nil
 }
 
 func usage() {

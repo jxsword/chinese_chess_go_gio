@@ -26,6 +26,8 @@ type CorpusEnv struct {
 	NewRequestID func(prefix string) string
 	// Root 当前生效语料目录解析（用户设置>legacy>默认，app 注入）。
 	Root func() string
+	// IO 语料 I/O 注入（nil = 生产复制物实现；性能实测/测试注入）。
+	IO state.CorpusIO
 }
 
 // goCorpusDriver 生产驱动：fn 在独立 goroutine 执行（阻塞 I/O 不进主循环）。
