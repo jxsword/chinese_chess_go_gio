@@ -7,18 +7,22 @@ import (
 	"image/color"
 	"io"
 	"log"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gioui.org/font"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
-	"strings"
 )
 
 // pocClipSample 首帧自动写入系统剪贴板的样本（供 Ctrl+V 粘贴路径实测）。
@@ -29,11 +33,27 @@ type PocIme struct {
 	ed        widget.Editor
 	committed string // 最近提交的完整文本（ChangeEvent 时回读）
 	clipWrote bool
+
+	winPasteBtn   widget.Clickable // 从 Windows 剪贴板粘贴（KG-004 可靠路径）
+	winPasteArmed bool             // POC_WINPASTE=1 自动触发取证
+	winPasteDone  bool
+	winPasteAt    time.Time
 }
 
-// NewPocIme 构造 POC-3 页。
+// NewPocIme 构造 POC-3 页。POC_WINPASTE=1 → 启动 1.5s 后自动触发一次
+// Windows 剪贴板粘贴（取证通道）。
 func NewPocIme() *PocIme {
-	return &PocIme{}
+	p := &PocIme{}
+	if os.Getenv("POC_WINPASTE") == "1" {
+		p.winPasteArmed = true
+	}
+	return p
+}
+
+// inWSL 当前是否运行于 WSL（/proc/version 含 microsoft）。
+func inWSL() bool {
+	b, err := os.ReadFile("/proc/version")
+	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
 // pocFontRow 字体回退链样例行：族名 + 说明 + Font。
@@ -61,6 +81,21 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 		p.clipWrote = true
 		gtx.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(pocClipSample))})
 		gtx.Execute(key.FocusCmd{Tag: &p.ed})
+	}
+	if p.winPasteArmed {
+		if p.winPasteAt.IsZero() {
+			p.winPasteAt = gtx.Now.Add(1500 * time.Millisecond)
+		} else if !gtx.Now.Before(p.winPasteAt) && !p.winPasteDone {
+			p.winPasteDone = true
+			p.pasteFromWindows(gtx)
+		} else if !p.winPasteDone {
+			// 注：InvalidateCmd{At: 未来时刻} 在 WSLg 实测不排帧（KG-004 记录），
+			// 用立即排帧轮询（1.5s 窗口，POC 可接受）。
+			gtx.Execute(op.InvalidateCmd{})
+		}
+	}
+	if p.winPasteBtn.Clicked(gtx) {
+		p.pasteFromWindows(gtx)
 	}
 	// Editor 事件：Change=文本变化（含 IME commit 后）。
 	for {
@@ -95,6 +130,26 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 				return t.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !inWSL() {
+					return layout.Dimensions{}
+				}
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						b := material.Button(pocTheme, &p.winPasteBtn, "从 Windows 剪贴板粘贴（KG-004 可靠路径）")
+						return b.Layout(gtx)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Dp(unit.Dp(12))
+						return layout.Dimensions{Size: gtx.Constraints.Min}
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						t := material.Body2(pocTheme, "Ctrl+V 走 WSLg 桥接（CJK 乱码）；本按钮走 powershell 管道（UTF-8 正确）")
+						t.Color = PocText
+						return t.Layout(gtx)
+					}),
+				)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(8))
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
@@ -122,6 +177,31 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	})
+}
+
+// pasteFromWindows KG-004 可靠粘贴路径：绕过 WSLg 剪贴板桥接（对 CJK 乱码且有损），
+// 经 powershell.exe Get-Clipboard 控制台管道（UTF-8）读取 Windows 剪贴板。
+// POC 期同步执行（阻塞事件循环数百 ms 可接受）；M4' 正式实现须走 app.Emit 异步（铁律 #G3）。
+func (p *PocIme) pasteFromWindows(gtx layout.Context) {
+	candidates := []string{
+		"/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", // WSL interop PATH 未注入时的兜底
+		"powershell.exe",
+	}
+	var out []byte
+	var err error
+	for _, exe := range candidates {
+		out, err = exec.Command(exe, "-NoProfile", "-Command", "Get-Clipboard").Output()
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		log.Printf("poc3: windows 剪贴板读取失败: %v", err)
+		return
+	}
+	text := strings.TrimSpace(string(out))
+	p.ed.SetText(p.ed.Text() + text)
+	log.Printf("poc3: windows 剪贴板粘贴 %q（runes=%d）", text, utf8.RuneCountInString(text))
 }
 
 // layoutEditor 输入框（白底描边框内嵌 Editor，固定尺寸防撑满窗口）。
