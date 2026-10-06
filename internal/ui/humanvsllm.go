@@ -103,6 +103,7 @@ type HumanVsLlmPage struct {
 	choiceAdvDiff  *choiceRow
 	sideLlmBtn     widget.Clickable
 	sideBuiltinBtn widget.Clickable
+	sideList       layout.List // 侧板外层滚动列表（页级字段——每帧新建会清零滚动状态）
 	saveNowBtn     widget.Clickable
 	newGameBtn     widget.Clickable
 	undoBtn        widget.Clickable
@@ -905,8 +906,7 @@ func (p *HumanVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 			if p.gameSettings.AdvisorMode != llm.AdvisorOff {
 				rows += 2
 			}
-			list := layout.List{Axis: layout.Vertical}
-			return list.Layout(gtx, rows, p.sideRow)
+			return p.sideList.Layout(gtx, rows, p.sideRow)
 		}),
 		// 粘性置底按钮行（恒可见）
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

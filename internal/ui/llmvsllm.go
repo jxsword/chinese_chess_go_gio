@@ -97,6 +97,7 @@ type LlmVsLlmPage struct {
 	choiceAdvDiff  *choiceRow
 	sideRedLlm     widget.Clickable
 	sideRedBuiltin widget.Clickable
+	sideList       layout.List // 侧板外层滚动列表（页级字段，同 humanvsllm）
 	sideBlkLlm     widget.Clickable
 	sideBlkBuiltin widget.Clickable
 	startStopBtn   widget.Clickable // 开始/暂停·继续（同一按钮）
@@ -942,8 +943,7 @@ func (p *LlmVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			rows := llvRowSettingsBase + p.settingRowCount()
-			list := layout.List{Axis: layout.Vertical}
-			return list.Layout(gtx, rows, p.sideRow)
+			return p.sideList.Layout(gtx, rows, p.sideRow)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

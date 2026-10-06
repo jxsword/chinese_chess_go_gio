@@ -5,7 +5,11 @@ package state
 // 允许单例（上游同口径，铁律 #G4 例外面）；对局状态仍必须走 NewGameStore 工厂。
 // 持久化经复制物 storage.Settings（07 §5：结构化读写收口，键 global_auto_save）。
 
-import "github.com/jxsword/chinese_chess_go_gio/internal/storage"
+import (
+	"log"
+
+	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
+)
 
 // SettingKeyGlobalUIScale 全局界面缩放键（Gio 版新增，08 §9；复制物
 // storage 常量不动——#G2）。值为相对系统缩放的乘数（1.0=跟随系统）。
@@ -61,7 +65,9 @@ func (g *GlobalSettings) SetUIScale(value float64) {
 	if g.st == nil {
 		return
 	}
-	_ = g.st.Set(SettingKeyGlobalUIScale, value)
+	if err := g.st.Set(SettingKeyGlobalUIScale, value); err != nil {
+		log.Println("state: 界面缩放保存失败（保留内存值）:", err)
+	}
 }
 
 // SetAutoSave 先改内存再落盘（global_settings.dart:30-35：写失败保留内存值，
