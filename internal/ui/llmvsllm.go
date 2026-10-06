@@ -146,11 +146,11 @@ func newLlmVsLlmPage(env LlmEnv, hooks LlmVsLlmHooks, llmRunner LlmRunner, runne
 	p.board = NewBoardView(p.store)
 	p.ai = NewEngineClient(env.GameEnv, runner)
 	p.advisor = NewEngineRunnerAdapter(p.ai.runner)
-	p.redCard = NewLlmConfigCard("红方模型", storage.SlotRed, llm.LlmPresets, p.redConfig, func(c llm.LlmEndpointConfig) {
+	p.redCard = NewLlmConfigCard("红方模型", storage.SlotRed, llmPresetsAll, p.redConfig, func(c llm.LlmEndpointConfig) {
 		p.redConfig = c
 		p.schedulePersist()
 	})
-	p.blackCard = NewLlmConfigCard("黑方模型", storage.SlotBlack, llm.LlmPresets, p.blackConfig, func(c llm.LlmEndpointConfig) {
+	p.blackCard = NewLlmConfigCard("黑方模型", storage.SlotBlack, llmPresetsAll, p.blackConfig, func(c llm.LlmEndpointConfig) {
 		p.blackConfig = c
 		p.schedulePersist()
 	})

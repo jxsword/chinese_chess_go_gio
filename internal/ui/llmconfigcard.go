@@ -50,6 +50,18 @@ const (
 	PasteTargetModel
 )
 
+// llmPresetsAll 对话预设清单 = 复制物 LlmPresets + 百炼千问（Gio 版新增，
+// 用户指定；复制物 ThinkingStyleFor 未登记该预设名 → 兜底形态
+// enable_thinking:false，与 DashScope 语义同形（05 §3.1 表），行为正确且
+// 复制物零改动——#G2）。
+var llmPresetsAll = append(append([]llm.LlmPreset(nil), llm.LlmPresets...),
+	llm.LlmPreset{
+		Name:         "百炼千问（阿里云百炼）",
+		BaseURL:      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		ExampleModel: "qwen3.8-max",
+		Style:        llm.ThinkingDefault,
+	})
+
 // LlmConfigCard LLM 配置卡 state struct（每页每槽位一实例；铁律 #G3 主 goroutine 独占）。
 type LlmConfigCard struct {
 	title    string
@@ -69,6 +81,8 @@ type LlmConfigCard struct {
 
 	apiKeyMasked bool // Key 显示掩码态（默认隐藏，点击"显示"图标再明文）
 	showHideBtn  widget.Clickable
+
+	presetsOpen bool // 预设候选展开态（折叠=仅当前预设，点击展开——M4' 优化轮）
 
 	presetBtns []widget.Clickable
 	baseURL    widget.Editor
@@ -176,6 +190,8 @@ func (c *LlmConfigCard) currentPreset() llm.LlmPreset {
 }
 
 func (c *LlmConfigCard) selectPreset(p llm.LlmPreset) {
+	// 选中即收起候选（折叠/展开两态，M4' 优化轮）。
+	c.presetsOpen = false
 	// 自定义也记录预设名（兜底关闭参数形态）；非自定义回填端点与示例模型
 	//（上游 onChange 语义）。
 	if p.Name == llm.LlmPresetCustom.Name {
@@ -203,9 +219,15 @@ func (c *LlmConfigCard) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 func (c *LlmConfigCard) handleEvents(gtx layout.Context) {
-	for i := range c.presetBtns {
-		if c.presetBtns[i].Clicked(gtx) {
-			c.selectPreset(c.presets[i])
+	if !c.presetsOpen {
+		if c.presetBtns[0].Clicked(gtx) {
+			c.presetsOpen = true // 展开候选
+		}
+	} else {
+		for i := range c.presetBtns {
+			if c.presetBtns[i].Clicked(gtx) {
+				c.selectPreset(c.presets[i]) // 选中即收起（selectPreset 内）
+			}
 		}
 	}
 	editorChanged := func(ed *widget.Editor) {
@@ -260,9 +282,14 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 			l.TextSize = unit.Sp(17)
 			return l.Layout(gtx)
 		}),
-		// 预设 chips（6 项 → 每行 2 项折行；Gio 无 <select>，chips 为同语义呈现）
+		// 预设选择：折叠/展开两态（M4' 优化轮——全部一次性显示改为下拉式
+		// 展开；展开内容在卡片流内，不受列表虚拟化裁切）
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				if !c.presetsOpen {
+					return layoutOptionChips(gtx, 170,
+						chipOpt{&c.presetBtns[0], preset.Name + " ▾", true})
+				}
 				children := []layout.FlexChild{}
 				const perRow = 2
 				for start := 0; start < len(c.presets); start += perRow {

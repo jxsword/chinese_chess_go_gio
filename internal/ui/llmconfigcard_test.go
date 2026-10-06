@@ -128,3 +128,39 @@ func TestLlmConfigCardSanitizeControlChars(t *testing.T) {
 		t.Fatalf("SetConfig sanitize: %+v", cfg)
 	}
 }
+
+// M4' 优化轮：预设清单含百炼千问（UI 层追加，复制物零改动）；
+// 折叠/展开两态切换。
+func TestLlmPresetsAllIncludesBailian(t *testing.T) {
+	found := false
+	for _, p := range llmPresetsAll {
+		if p.Name == "百炼千问（阿里云百炼）" {
+			found = true
+			if p.BaseURL != "https://dashscope.aliyuncs.com/compatible-mode/v1" || p.ExampleModel != "qwen3.8-max" {
+				t.Fatalf("bailian preset = %+v", p)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("百炼千问 preset missing")
+	}
+	// 关闭参数形态：未登记预设走兜底 enable_thinking:false（DashScope 语义同形）。
+	if llm.ThinkingStyleFor("百炼千问（阿里云百炼）") != llm.ThinkingDefault {
+		t.Fatal("unregistered preset must fall back to ThinkingDefault")
+	}
+}
+
+func TestLlmConfigCardPresetsExpandCollapse(t *testing.T) {
+	card := NewLlmConfigCard("t", "llm_config_black", llmPresetsAll, llm.LlmEndpointConfig{}, nil)
+	if card.presetsOpen {
+		t.Fatal("collapsed by default")
+	}
+	card.presetsOpen = true
+	card.selectPreset(llmPresetsAll[1])
+	if card.presetsOpen {
+		t.Fatal("select must collapse")
+	}
+	if card.Config().Preset != llmPresetsAll[1].Name {
+		t.Fatalf("preset = %q", card.Config().Preset)
+	}
+}

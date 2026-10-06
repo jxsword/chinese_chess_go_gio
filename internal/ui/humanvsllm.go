@@ -152,7 +152,7 @@ func newHumanVsLlmPage(env LlmEnv, hooks HumanVsLlmHooks, llmRunner LlmRunner, r
 	p.board = NewBoardView(p.store)
 	p.ai = NewEngineClient(env.GameEnv, runner)
 	p.advisor = NewEngineRunnerAdapter(p.ai.runner)
-	p.configCard = NewLlmConfigCard("黑方模型（对手）", humanVsLlmBlackSlot, llm.LlmPresets, p.config, func(c llm.LlmEndpointConfig) {
+	p.configCard = NewLlmConfigCard("黑方模型（对手）", humanVsLlmBlackSlot, llmPresetsAll, p.config, func(c llm.LlmEndpointConfig) {
 		p.config = c
 		p.schedulePersist()
 	})
