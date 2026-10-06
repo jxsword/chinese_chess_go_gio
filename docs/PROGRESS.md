@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-**M3' 引擎对接 + 人机页——验收通过**（2026-10-06，tag v0.3.0-m3'；一轮手测反馈
-两项修复 + 一项行为澄清 + DR-G004 最小思考呈现，复测确认通过）。
-下一里程碑 M4'（LLM 全链路对接，启动提示词=design_docs/11 §4.5，全新会话粘贴）。
+**M4' LLM 全链路对接——开发完成，待用户手测验收**（2026-10-06；T4'.1~T4'.3 完成，
+质量门全绿，X11 截图取证两页渲染；真实端点手测一整局由用户执行）。
+验收通过后进入 M5'（语料 + 棋谱对接，启动提示词=design_docs/11 §4.6）。
 
 ## 里程碑总览
 
@@ -15,7 +15,74 @@
 | **M1' 状态层核心 + 主页** | ✅ 验收通过 | T1'.1~T1'.3 完成；DR-G002 翻译用例全绿；验收反馈两项修复（居中/D-002 标题绕过）复验通过 |
 | **M2' 双人对战 + 存储** | ✅ 验收通过（tag v0.2.0-m2'） | T2'.1~T2'.4 完成；翻译用例回归+13 项手测通过；验收反馈一项修复（KG-009 弹窗居中）复验通过 |
 | **M3' 引擎对接 + 人机页** | ✅ 验收通过（tag v0.3.0-m3'） | T3'.1~T3'.2 完成；对拍回归全绿（复制物零改动）+ cancel/迟到丢弃用例 + 难度 5 实测 1.54s（≤7.5s）；验收反馈轮两项修复（chips 指针区/侧板溢出）+ 澄清（难度耗时）+ DR-G004 最小思考呈现 |
-| M4'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+| **M4' LLM 全链路对接** | 🔶 开发完成待手测 | T4'.1~T4'.3 完成；mock SSE 回归+掩码/借用/总线用例全绿；真实端点手测待用户执行（GLM/DeepSeek 配置指引见手测清单） |
+| M5'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+
+## M4' 完成清单（逐任务 commit）
+
+| 任务 | 交付 | 验收结果 |
+|---|---|---|
+| T4'.1 | `ui/llmclient.go`（commit T4'.1）：复制物 transport 包装——moveTransport 做 AuthSlot 注入（DR-010）+ chunk/done/error 事件 tee 到 app 事件总线（外层页面级 requestId 标记）；MoveAsync=goroutine 生存期即请求生存期（NextMove 阻塞至结算，00 §4 "cc:llm:chat"行）；取消=走子 ctx + player.CancelCurrent + 总线 Cancel 三收口（#G5；StreamTransport.Cancel 幂等）；TestConnectionAsync 走复制物 Proxy.TestConnection；EngineRunnerAdapter 参谋同步面（Submit+等待，ctx 取消撤销引擎请求，**参谋一律不传 HistoryFens**——可复现铁律）；`app/llmrepo.go` ui.LlmStore 代理（凭据槽位异步读写、ResolveAPIKey 仅注入面、llm_settings 写侧后台 I/O）；events.go 新增载荷 + 00 §4 四行登记（文档先行） | mock SSE 回归全绿（internal/llm -count=1 复跑）；tee 事件/AuthSlot 三态/取消链/参谋适配器（含 ctx 取消）/httptest mock 测试连接 + 掩码 roundtrip/降级路径，`-race` 全绿；事件总线 requestId 过滤/迟到丢弃用例（M1' 既有）回归 |
+| T4'.2 | `state/assistantconfig.go`（assistantConfig.ts 逐字翻译：助手槽全空→黑→红运行时借用，纯内存永不写助手槽，部分填写不借用 DR-012 边界，authSlot 随来源槽）+ `ui/llmconfigcard.go`（四字段表单 Editor+IME、预设 chips=presetFor 翻译、掩码 Key 回显、测试连接、**无思维链开关**——仅 DR-005 固定提示语）+ `ui/winclip.go`（KG-004 粘贴异步化，每字段定向回填）+ `ui/widgets.go` layoutOptionChips 共享化 | assistantConfig.spec.ts 9 用例逐条翻译全绿；配置卡状态用例 6（预设选择/掩码往返/粘贴回填/测试连接/无开关结构锚定）全绿；app 代理掩码 roundtrip（掩码回写不覆盖真实 Key，防错 #8）/降级路径 2 用例全绿 |
+| T4'.3 | `ui/humanvsllm.go`（翻译源=HumanVsLlmPage.tsx：黑方大模型/内置 AI 二选一、配置卡+设置 chips、两路汇合触发、应手结算/failed 判负 #7/迟到丢弃、思考中悔棋=中止重想、DR-014 镜像视图、内置路径补 DR-G004、立即保存粘性置底）+ `ui/llmvsllm.go`（翻译源=LlmVsLlmPage.tsx：循环=主 goroutine 状态机 pump 步进（#G3 等价上游 async while）、开始校验 DR-012/DR-014、暂停作废在途、loopGen 代次收口、interval tick 经事件总线、双槽位保存、恢复不自动续跑）+ `ui/llmcommon.go`（流式消息区 chunk 追加+备注/否决链条目+置底；choiceRow consume/draw 分离）+ app 两页工厂（#G4）+ 两页 RepetitionJudge 裁决接线（人机页玩家侧弹框/引擎侧自动；LLM vs LLM 双方自动） | 页面用例 15（镜像/触发 spec/结算/取消链/流式 K21/保存镜像拦截/测试连接 override/内置对手/防抖代次/循环交替/interval tick/暂停作废/停止新游戏/failed 判负/迟到丢弃）`-race` 全绿；X11 截图取证两页渲染（~/poc_evidence/m4/home.png、humanvsllm.png、llmvsllm.png）；`go run .` 冒烟无 panic |
+
+## M4' 验证门结果
+
+- **mock SSE 回归全绿（复制物）**：`go test ./internal/llm/ -race -count=1`（含 GLM thinking 参数断言=恒发关闭参数、mock 写已断开连接守卫）+ 金标准对拍（internal/engine -count=1）全绿，复制物零改动；
+- **事件总线 requestId 用例**：M1' 总线过滤/迟到丢弃回归 + moveTransport 外层 id 映射用例 + 页面级 K21 二次收口（chunk/MoveDone 双面）全绿；
+- **掩码/借用用例**：Credentials 掩码语义（复制物既有）+ app 代理掩码 roundtrip/掩码回写合并 + DR-009 借用 9 用例全绿；
+- **真实端点手测一整局**：待用户执行（GLM/DeepSeek 配置与手测指引见下方手测清单）；
+- 质量门：`gofmt -l` 空输出 + `go vet ./...` 0 问题 + `go test ./... -race` 全量通过；`go run .` 冒烟通过。
+
+## M4' 复审记录（§6.1 两轮）
+
+- 第一轮·语义一致性：humanvsllm.go/llmvsllm.go 与上游两页逐行为对照——修正三处：①弹窗遮罩下对局设置 chips/引擎类型 chips 点击边沿未消费（KG-008 同类面，收口为全消费不生效）；②防抖保存字段面按上游 copyWith 对齐（对手引擎类型仅"立即保存"落盘）；③内置 AI 对手路径补 DR-G004 最小思考呈现 300ms（同人机页）。测试连接镜像 override（DR-014）与上游 testOverride 逐字对应。
+- 第二轮·缺陷扫描：goroutine 面审计（moveTransport emit 只经 env.Emit；OnAttempt/paste/persist 定时器全部事件回主循环；参谋适配器阻塞仅在走子 goroutine 内合法）；迟到面审计（页面 requestId 防御 + 总线取消 id 双层 + loopGen 代次三面）；错误消息面无 Key 泄漏（ResolveAPIKey 返回值只进 Authorization 头）；choiceRow 虚拟化行消费面每帧全量（draw 仅可见行）；`-race` 全绿。
+- §6.3 铁律自检（机器验证）：#G1 六包 import 行无 gioui.org、net/http 仅 llm/transport+vision 与 storage/corpusDownloader（复制物既有口径）；#G2 复制物+cmd/eval diff=零改动；#G3 新增代码后台 goroutine 只 Emit；#G4 两页 Router 工厂；#G5 llm/restore/save/test 请求均带 requestId，取消三收口；#G6 配置 UI 无思维链开关（结构用例锚定，关闭参数由复制物构造层恒发）；#G7 掩码回读/回写合并（代理层测试锚定）；#G8 ui/state 无网络出口。
+- P3 登记：KG-010（流式 chunk 事件通道满非阻塞丢弃——#G3 语义使然，消息区可能缺段，结算回执不受影响）。
+
+## M4' 已知问题与偏离注记
+
+- KG-010（新增，P3）：见 docs/KNOWN_ISSUES.md。
+- 语义偏离 1（有意，登记备查）：**DR-014 镜像的 authSlot 取红槽**——上游人机 LLM 页镜像态构造 HybridLlmPlayer 恒传黑槽，掩码 Key 下 Proxy 按黑槽注入会落空（红方 Key 在红槽）；本仓按同页 testConnection 的 testOverride 同口径取红槽（authSlot 随生效配置来源，DR-010 闭环）。镜像视图编辑不回写黑槽的 DR-014 语义不变。
+- 语义偏离 2（呈现层）：**流式消息区**为人机 LLM/LLM vs LLM 两页新增（08 §5 Gio 规格；上游状态条仅显示 note）——chunk 正文追加渲染 + 〔参谋〕〔兜底〕〔判负〕〔异常〕条目（VetoFeedback 否决链经 result.Note 入列）；思维链正文不呈现（DR-005 恒关）。
+- 语义偏离 3（布局层）：对局设置/引擎类型的 `<select>` 一律 chips 呈现（Gio 无 select；M3' 难度 chips 同款偏离）；预设选择 6 项折两行。
+- M3'/M2' 遗留偏离注记（PlayMove 即时落盘+视觉飞行层、恢复取档先裁决、进页锁输入等）对 M4' 两页同样适用（复用同一骨架）。
+
+## M4' 手测清单（用户执行；真实端点一整局为验收门）
+
+### 准备：端点配置（GLM / DeepSeek 任选其一，或都用）
+
+1. `go run .` → 主页"人机 LLM"→"对手"区默认"大模型"；
+2. 配置卡（黑方模型）：预设 chips 选端点 → 填 API Key → 测试连接 → "连接成功，模型 … 响应正常"；
+   - **智谱 GLM**：预设"智谱 GLM"（端点/示例模型自动回填），API Key 从 <https://open.bigmodel.cn> 控制台获取，模型 ID 可改 `glm-4-flash`（免费）或 `glm-4.6`；关闭参数自动走 `thinking:{type:disabled}`；
+   - **DeepSeek**：预设"DeepSeek"，Key 从 <https://platform.deepseek.com> 获取，模型 `deepseek-chat`；关闭参数走 `enable_thinking:false` 兜底；
+   - **输入口径（KG-003/KG-004）**：Key/URL 为 ASCII，Ctrl+V 可用；每字段旁"粘贴"按钮走 powershell 管道（Windows 先复制），中文场景用它；
+   - 点**立即保存**（侧板底部粘性按钮）→ toast"模型配置已保存"（WSL 无 keyring 时如实提示"已明文保存到本地"——0600 回退，复制物 DR-011 语义）；
+   - 【上游-DR-005 核对项】配置卡内**不存在任何思维链开关**，仅固定提示"思维链已强制关闭"。
+3. LLM vs LLM 页可复用同一配置：进入后"立即保存"写红黑两槽；或把一侧留空（显示"对局时将使用另一方的模型配置"提示——DR-012 跟随）。
+
+### 人机 LLM 页（对照 08 防错 #4/#5/#7/#8/#11/#12）
+
+1. **流式消息区**：走一着红炮（7,7)→(7,4) → 状态条"黑方 <模型ID> 正在思考…（已思考 Ns，第 1/3 次尝试）"→ 消息区实时追加模型回复正文（chunk 级）→ 应手落盘带 220ms 飞行动画 + 状态条切回等待玩家。
+2. **参谋/否决链**：引擎参谋选"候选"或"护航"→ 走子后消息区出现"〔参谋〕参谋评分: …"条目；护航模式模型选劣着时可观察到"〔兜底〕已由参谋否决…"或引擎代走注记（观察项）。
+3. **重试与降级**：无效回复重试=3 次、持续失败=内置 AI 代走（默认）→ 故意把模型 ID 改成不存在值 → 走子 → 消息区"〔兜底〕…已由内置 AI 兜底走子"+ 状态条注记（或改回"该方判负"观察"〔判负〕…判红方胜"）。
+4. **思考中悔棋=中止重想**：模型思考中点"悔棋" → 在途请求作废、模型重新应手（防错 #4）；新游戏确认框弹出期间 chips/设置不可点（遮罩拦截）。
+5. **保存/恢复/掩码（#8）**：走 2~3 手 → 返回主页 → 重进 → 恢复存档且轮黑时模型自动续手；重启应用进配置卡 → API Key 显示 `****`+末 4 位（掩码回读），不动它直接"立即保存" → 再测连接仍成功（掩码回写不覆盖真实 Key）。
+6. **测试连接镜像（DR-014）**：先在大模型对战页（或 LLM vs LLM 红方）保存红方配置，清空黑方槽（把三字段全清空+立即保存）→ 进人机 LLM 页 → 配置卡显示红方配置+提示"黑方未配置——已使用红方的模型配置"→ 测试连接应测红方配置且成功；立即保存 → toast"当前为红方配置的镜像视图，请在红方一侧修改配置"。
+7. **内置 AI 对手（DR-014）**：对手切"内置 AI"→ 走子后 AI 直接应手（无需 LLM 配置），行为同人机对战页（含 300ms 最小思考呈现）。
+8. **三次重复裁决（#11/#12）**：构造闲着重复环 → k=2 toast 不阻塞 / k=3 判和确认框（玩家侧）——与人机页一致。
+
+### LLM vs LLM 页
+
+1. **自动对局一整局**：双槽位配置好后点"开始对战" → 状态条"红方（模型ID）思考中…（已思考 Ns，第 N/M 次尝试）"与黑方交替 → 每手落盘+飞行动画、消息区双方流式正文与备注条目、信息区"红方/黑方：note"+"最新走法"→ 至将死/困毙自动停（或"停止"手动终止）。
+2. **走棋间隔**：间隔选 1/2/5 秒 → 每手之间明显停顿；选"不等待"→ 连续快走。
+3. **暂停/继续/停止**：思考中点"暂停" → 在途回复作废、状态条"已暂停（模型回复已作废，继续后重新思考）"→ "继续" → 重新思考；"停止" → 解锁棋盘（点击可选中）、可再"开始对战"续走。
+4. **空侧跟随（DR-012）**：把黑方三字段全清空+立即保存（红方保留配置）→ 开始 → 黑方实际用红方配置应手（状态条黑方括号内显示红方模型 ID）；黑侧引擎切"内置 AI"→ 黑方无需 LLM 配置直接应手。
+5. **恢复不自动续跑**：对局中途返回主页 → 重进 → 局面恢复但停在当前局面，点"开始对战"续走。
+6. **一方失败终止（#7 观察项）**：把一侧模型 ID 改错+持续失败=该方判负 → 开始 → 该侧 3 次重试耗尽 → 状态条"X方走子失败，对局终止"+ 结算横幅判对方胜。
+7. **双槽位保存回执**："立即保存" → 两回执齐后 toast"双方模型配置已保存"；红黑任一 per-field 粘贴按钮独立回填本卡字段。
+
 
 ## M3' 完成清单（逐任务 commit）
 
