@@ -76,6 +76,25 @@ func TestLlmStoreSlotRoundtripMasked(t *testing.T) {
 		t.Fatalf("resolve = %q", got)
 	}
 
+	// 脏存盘清洗：存储中的历史脏配置（模型 ID 夹带 NUL）加载回读即净
+	//（走子管线/测试连接/展示三路一致——M4' 验收反馈修复轮）。
+	// 实测存储形态（用户存档）：model = "qwen3.8-max" + 4×NUL
+	dirty := llm.LlmEndpointConfig{BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		APIKey: "sk-dirty", Model: "qwen3.8-max\x00\x00\x00\x00"}
+	proxy.SaveSlotAsync("save-dirty", storage.SlotBlack, dirty)
+	f.wait(t)
+	if got := proxy.ResolveAPIKey(storage.SlotBlack); got != "sk-dirty" {
+		t.Fatalf("dirty save resolve = %q", got)
+	}
+	proxy.LoadSlotAsync("load-dirty", storage.SlotBlack)
+	loadedDirty := f.wait(t).payload.(ui.SecureSlotLoaded)
+	if loadedDirty.Config == nil || loadedDirty.Config.Model != "qwen3.8-max" {
+		t.Fatalf("dirty load = %+v, want model cleaned to qwen3.8-max", loadedDirty.Config)
+	}
+	if loadedDirty.Config.APIKey != "****irty" {
+		t.Fatalf("dirty load key must be masked, got %q", loadedDirty.Config.APIKey)
+	}
+
 	// 掩码回写不覆盖真实 Key（防错 #8，代理层透传复制物合并语义）。
 	maskedWrite := cfg
 	maskedWrite.APIKey = "****9999"

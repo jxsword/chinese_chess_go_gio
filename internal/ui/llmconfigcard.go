@@ -20,24 +20,15 @@ import (
 	"gioui.org/widget/material"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/llm"
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 )
 
 // colorWhite 编辑框底色（白底描边，POC-3 layoutEditor 同款）。
 var colorWhite = rgb(0xffffff)
 
-// sanitizeField 表单输入清洗：剥离全部控制字符（NUL/制表/回车等 C0 与 DEL）
-// 及首尾空白。M4' 验收反馈实证：百炼端点 404 回显的模型名尾部夹带 4 个 NUL
-// （HTTP 404: The model `qwen3.8-max:\u0000\u0000\u0000\u0000` does not exist）——
-// 控制字符经键入/剪贴板路径进入 Editor 后原样进入请求体。UI 层在表单边界
-// 清洗，不触碰复制物协议构造（#G2）。
-func sanitizeField(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, strings.TrimSpace(s))
-}
+// sanitizeField 表单输入清洗（state.SanitizeTextField 委托——与 app 凭据代理
+// 读写边界共用一份实现；背景见 state/sanitize.go）。
+func sanitizeField(s string) string { return state.SanitizeTextField(s) }
 
 // 配置卡文本字段目标编号（PasteTextDone.Target 定向回填）。
 const (
@@ -236,7 +227,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			l := material.Body2(PageTheme, c.title)
 			l.Color = ThemeSeedDark
-			l.TextSize = unit.Sp(15)
+			l.TextSize = unit.Sp(16)
 			return l.Layout(gtx)
 		}),
 		// 预设 chips（6 项 → 每行 2 项折行；Gio 无 <select>，chips 为同语义呈现）
@@ -266,7 +257,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 			// DR-005：思维链强制关闭固定提示（无开关路径）。
 			l := material.Body2(PageTheme, "思维链已强制关闭（按端点预设发送关闭参数，无需配置）。")
 			l.Color = ThemeSeedDark
-			l.TextSize = unit.Sp(13)
+			l.TextSize = unit.Sp(14)
 			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, l.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -292,7 +283,7 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 			} else {
 				l.Color = ThemeError
 			}
-			l.TextSize = unit.Sp(13)
+			l.TextSize = unit.Sp(14)
 			return layout.Inset{Top: unit.Dp(4)}.Layout(gtx, l.Layout)
 		}),
 	)
@@ -308,7 +299,7 @@ func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							l := material.Body2(PageTheme, label)
 							l.Color = ThemeOnSurface
-							l.TextSize = unit.Sp(14)
+							l.TextSize = unit.Sp(15)
 							return l.Layout(gtx)
 						}),
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
@@ -339,8 +330,8 @@ func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx
 // layoutEditorBox 白底描边输入框（单行；POC-3 layoutEditor 的正式版收编）。
 func layoutEditorBox(gtx layout.Context, ed *widget.Editor, hint string) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(34))
-	gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(34))
+	gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(36))
+	gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(36))
 	return layout.Stack{Alignment: layout.NW}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -351,7 +342,7 @@ func layoutEditorBox(gtx layout.Context, ed *widget.Editor, hint string) layout.
 			return layout.Inset{Left: unit.Dp(6), Right: unit.Dp(6), Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				e := material.Editor(PageTheme, ed, hint)
 				e.Color = ThemeOnSurface
-				e.TextSize = unit.Sp(14)
+				e.TextSize = unit.Sp(15)
 				return e.Layout(gtx)
 			})
 		}),

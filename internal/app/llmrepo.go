@@ -28,12 +28,19 @@ func newLlmStore(store *DataStore, emit func(requestID string, payload any, err 
 // errStorageUnavailable 存储降级口径（与"本地存储不可用"同文案族）。
 var errStorageUnavailable = errors.New("app: 本地存储不可用")
 
-// slotToLlm 复制物槽位形状 → LLM 端点配置（同形字段直映）。
+// slotToLlm 复制物槽位形状 → LLM 端点配置（同形字段直映 + 表单文本清洗——
+// 存储中可能已有夹带控制字符的历史脏配置（M4' 验收反馈实证），加载回读时
+// 统一清洗，走子管线/测试连接/展示三路一致干净）。
 func slotToLlm(cfg *storage.SlotConfig) *llm.LlmEndpointConfig {
 	if cfg == nil {
 		return nil
 	}
-	return &llm.LlmEndpointConfig{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.Model, Preset: cfg.Preset}
+	return &llm.LlmEndpointConfig{
+		BaseURL: state.SanitizeTextField(cfg.BaseURL),
+		APIKey:  state.SanitizeTextField(cfg.APIKey),
+		Model:   state.SanitizeTextField(cfg.Model),
+		Preset:  state.SanitizeTextField(cfg.Preset),
+	}
 }
 
 // LoadSlotAsync 实现 ui.LlmStore（掩码回读——Credentials.Get 已掩码，#G7）。
@@ -57,7 +64,13 @@ func (s *llmStore) SaveSlotAsync(requestID, slot string, cfg llm.LlmEndpointConf
 			s.emit(requestID, ui.SecureSlotSaved{Slot: slot, Err: errStorageUnavailable}, nil)
 			return
 		}
-		res, err := creds.Set(slot, storage.SlotConfig{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.Model, Preset: cfg.Preset})
+		// 落盘前清洗（掩码合并语义不变——掩码形态 Key 经复制物 Set 恢复原 Key）
+		res, err := creds.Set(slot, storage.SlotConfig{
+			BaseURL: state.SanitizeTextField(cfg.BaseURL),
+			APIKey:  state.SanitizeTextField(cfg.APIKey),
+			Model:   state.SanitizeTextField(cfg.Model),
+			Preset:  state.SanitizeTextField(cfg.Preset),
+		})
 		if err != nil {
 			log.Println("app: 模型配置保存失败:", err)
 		}
