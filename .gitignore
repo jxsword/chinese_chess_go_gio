@@ -123,3 +123,4 @@ frontend/wailsjs/
 # ============== M0 新增（WSLg 取证/构建产物） ==============
 *.deb
 *.xwd
+chinese_chess_go_gio
