@@ -875,9 +875,11 @@ func (p *HumanVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			// 含内边距总宽：max(420dp, 窗宽 30%)——最大化/宽窗下侧板随比例加宽，
-			// 内容不再拥挤（M4' 验收反馈第 3 轮：定宽在 4K 最大化下过窄）。
-			w := max(gtx.Dp(unit.Dp(420)), gtx.Constraints.Max.X*3/10)
+			// 含内边距总宽：max(420dp, 窗宽 dp 的 30%)——最大化/宽窗下侧板随比例
+			// 加宽（M4' 验收反馈第 3 轮）；比例项用 dp 口径（像素口径在界面缩放
+			// 高倍档下 dp 空间变小，文字会再次拥挤——第 4 轮一致性修正）。
+			windowDp := float32(gtx.Constraints.Max.X) / gtx.Metric.PxPerDp
+			w := max(gtx.Dp(unit.Dp(420)), gtx.Dp(unit.Dp(windowDp*3/10)))
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.layoutSidePanel)

@@ -910,8 +910,9 @@ func (p *LlmVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.board.Layout)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			// 含内边距总宽：max(420dp, 窗宽 30%)（同 humanvsllm 口径）。
-			w := max(gtx.Dp(unit.Dp(420)), gtx.Constraints.Max.X*3/10)
+			// 含内边距总宽：max(420dp, 窗宽 dp 的 30%)（同 humanvsllm 口径，dp 比例项缩放自洽）。
+			windowDp := float32(gtx.Constraints.Max.X) / gtx.Metric.PxPerDp
+			w := max(gtx.Dp(unit.Dp(420)), gtx.Dp(unit.Dp(windowDp*3/10)))
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			return layout.UniformInset(unit.Dp(8)).Layout(gtx, p.layoutSidePanel)
