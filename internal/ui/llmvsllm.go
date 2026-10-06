@@ -921,14 +921,15 @@ func (p *LlmVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// 侧板滚动区行号（双信息 + 双配置卡 + 设置区）。
+// 侧板滚动区行号（双信息 + 双配置卡 + 设置区）。消息区放最后：固定高度
+// 不挤占设置区（M4' 验收反馈第 8 轮）。
 const (
 	llvRowInfo = iota
-	llvRowMsg
 	llvRowRedCard
 	llvRowBlackCard
 	llvRowSideTypes
 	llvRowSettingsBase // 自此起对局设置行（0=超时 1=重试 2=降级 3=间隔 4=参谋 5=红强 6=黑强 7=深度）
+	llvRowMsg
 )
 
 func (p *LlmVsLlmPage) settingRowCount() int {
@@ -942,7 +943,7 @@ func (p *LlmVsLlmPage) settingRowCount() int {
 func (p *LlmVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			rows := llvRowSettingsBase + p.settingRowCount()
+			rows := llvRowSettingsBase + p.settingRowCount() + 1 // 前四行 + 设置行 + 消息区
 			return p.sideList.Layout(gtx, rows, p.sideRow)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -957,14 +958,14 @@ func (p *LlmVsLlmPage) sideRow(gtx layout.Context, i int) layout.Dimensions {
 	switch {
 	case i == llvRowInfo:
 		return p.layoutGameInfo(gtx)
-	case i == llvRowMsg:
-		return messageAreaCard(gtx, p.msgArea, "消息区")
 	case i == llvRowRedCard:
 		return p.layoutRedCard(gtx)
 	case i == llvRowBlackCard:
 		return p.layoutBlackCard(gtx)
 	case i == llvRowSideTypes:
 		return p.layoutSideTypeRow(gtx)
+	case i == llvRowMsg:
+		return messageAreaCard(gtx, p.msgArea, "消息区")
 	default:
 		idx := i - llvRowSettingsBase
 		if idx < 0 || idx >= p.settingRowCount() {

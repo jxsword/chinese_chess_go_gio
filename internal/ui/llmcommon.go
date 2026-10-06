@@ -58,9 +58,12 @@ func (a *streamMessageArea) endStream() {
 	a.streaming = false
 }
 
-// appendLine 追加备注/否决链条目（独立行）。
+// appendLine 追加备注/否决链条目（独立行；超上限从最旧侧丢弃）。
 func (a *streamMessageArea) appendLine(line string) {
 	a.lines = append(a.lines, line)
+	if len(a.lines) > streamMessageMaxLines {
+		a.lines = a.lines[len(a.lines)-streamMessageMaxLines:]
+	}
 }
 
 // clear 清空（新游戏路径）。
@@ -69,7 +72,13 @@ func (a *streamMessageArea) clear() {
 	a.streaming = false
 }
 
-// layout 渲染消息区（普通列，随侧板滚动；文本按面板宽度自动换行）。
+// streamMessageMaxLines 消息区留存上限（超出从最旧侧丢弃——消息区是
+// 流式过程/否决链的临时呈现，完整 note 仍在状态条与走法注记）。
+const streamMessageMaxLines = 60
+
+// layout 渲染消息区：**固定高度、只显示最新若干行**（tail）——不无限增高
+// （无限增高会把配置/设置区挤出视口——M4' 验收反馈第 8 轮实证），也不内嵌
+// 列表（嵌套列表盗取滚轮事件——第 7 轮实证）。文本按面板宽度自动换行。
 func (a *streamMessageArea) layout(gtx layout.Context) layout.Dimensions {
 	n := len(a.lines)
 	if n == 0 {
@@ -78,8 +87,14 @@ func (a *streamMessageArea) layout(gtx layout.Context) layout.Dimensions {
 		l.TextSize = unit.Sp(15)
 		return l.Layout(gtx)
 	}
-	children := make([]layout.FlexChild, 0, n)
-	for _, line := range a.lines {
+	// tail：从最新行倒序取，直到超过可见预算（~10 行）。
+	const maxVisible = 10
+	start := 0
+	if n > maxVisible {
+		start = n - maxVisible
+	}
+	children := make([]layout.FlexChild, 0, n-start)
+	for _, line := range a.lines[start:] {
 		line := line
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			l := material.Body2(PageTheme, line)

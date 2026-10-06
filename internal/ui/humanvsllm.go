@@ -888,13 +888,14 @@ func (p *HumanVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// 侧板滚动区行号（行数随参谋模式增减）。
+// 侧板滚动区行号（行数随参谋模式增减）。消息区放最后：固定高度不挤占
+// 设置区（M4' 验收反馈第 8 轮——设置常驻上方可达）。
 const (
 	sideRowInfo = iota
-	sideRowMsg
 	sideRowOpponent
 	sideRowConfig
 	sideRowSettingsBase // 自此起为对局设置行（0=超时 1=重试 2=降级 3=参谋 4=强度 5=深度）
+	sideRowMsg
 )
 
 // layoutSidePanel 侧板：Flex 竖排{滚动区(layout.List), 固定底部按钮行}——
@@ -902,10 +903,7 @@ const (
 func (p *HumanVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			rows := sideRowSettingsBase + 4
-			if p.gameSettings.AdvisorMode != llm.AdvisorOff {
-				rows += 2
-			}
+			rows := sideRowSettingsBase + p.settingRowCount() + 1 // 前三行 + 设置行 + 消息区
 			return p.sideList.Layout(gtx, rows, p.sideRow)
 		}),
 		// 粘性置底按钮行（恒可见）
@@ -930,12 +928,12 @@ func (p *HumanVsLlmPage) sideRow(gtx layout.Context, i int) layout.Dimensions {
 	switch {
 	case i == sideRowInfo:
 		return p.layoutGameInfo(gtx)
-	case i == sideRowMsg:
-		return messageAreaCard(gtx, p.msgArea, "消息区")
 	case i == sideRowOpponent:
 		return p.layoutOpponentRow(gtx)
 	case i == sideRowConfig:
 		return p.layoutConfigSection(gtx)
+	case i == sideRowMsg:
+		return messageAreaCard(gtx, p.msgArea, "消息区")
 	default:
 		idx := i - sideRowSettingsBase
 		if idx < 0 || idx >= p.settingRowCount() {

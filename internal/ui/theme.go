@@ -94,6 +94,10 @@ func fontCollection() []text.FontFace {
 // POC 文件不继承本主题）。
 var PageTheme = func() *material.Theme {
 	th := material.NewTheme()
+	// ContrastBg 补齐：material 默认 #3F51B5（indigo）与本仓色板无关——
+	// 未显式着色的 Button/CheckBox 会用它（M4' 验收反馈截图中大量
+	// indigo 的来源）；统一为主色。
+	th.ContrastBg = ThemeSeed
 	th.Shaper = text.NewShaper(text.WithCollection(fontCollection()))
 	return th
 }()
