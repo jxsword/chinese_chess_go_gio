@@ -132,7 +132,7 @@ func PocDrawBoardArt(gtx layout.Context, l PocBoardLayout, showFileNumbers bool)
 	frameW := float32(gtx.Dp(4)) // 外框 strokeWidth=4
 
 	// 1. 底色（BoardViewStatic:43 --cc-board-bg）
-	pocFillRect(ops, image.Rect(0, 0, int(l.Width), int(l.Height)), PocBoardBg)
+	pocFillRect(ops, image.Rect(0, 0, int(l.Width), int(l.Height)), ThemeBoardBg)
 
 	at := func(c, r int) (float32, float32) { return PocOffsetOf(l, c, r) }
 	riverY := l.OriginY + 4.5*l.Cell
@@ -142,39 +142,39 @@ func PocDrawBoardArt(gtx layout.Context, l PocBoardLayout, showFileNumbers bool)
 	// 2. 外框（boardArt.tsx:31-39）
 	fx, fy := at(0, 0)
 	pocStrokeRect(ops, fx-l.BorderMargin, fy-l.BorderMargin,
-		pocBoardCols*l.Cell+2*l.BorderMargin, pocBoardRows*l.Cell+2*l.BorderMargin, frameW, PocBoardLine)
+		pocBoardCols*l.Cell+2*l.BorderMargin, pocBoardRows*l.Cell+2*l.BorderMargin, frameW, ThemeBoardLine)
 
 	// 3. 横线 10 条
 	for r := 0; r <= 9; r++ {
 		x1, y1 := at(0, r)
 		x2, _ := at(8, r)
-		pocStrokeLine(ops, x1, y1, x2, y1, lineW, PocBoardLine)
+		pocStrokeLine(ops, x1, y1, x2, y1, lineW, ThemeBoardLine)
 	}
 	// 4. 竖线 9 条：中间 7 条被楚河汉界打断
 	for c := 0; c <= 8; c++ {
 		if c == 0 || c == 8 {
 			x, y1 := at(c, 0)
 			_, y2 := at(c, 9)
-			pocStrokeLine(ops, x, y1, x, y2, lineW, PocBoardLine)
+			pocStrokeLine(ops, x, y1, x, y2, lineW, ThemeBoardLine)
 			continue
 		}
 		x, t1 := at(c, 0)
 		_, t2 := at(c, 4)
 		_, b1 := at(c, 5)
 		_, b2 := at(c, 9)
-		pocStrokeLine(ops, x, t1, x, t2, lineW, PocBoardLine)
-		pocStrokeLine(ops, x, b1, x, b2, lineW, PocBoardLine)
+		pocStrokeLine(ops, x, t1, x, t2, lineW, ThemeBoardLine)
+		pocStrokeLine(ops, x, b1, x, b2, lineW, ThemeBoardLine)
 	}
 	// 5. 九宫斜线 ×4
 	for _, d := range [4][4]int{{3, 0, 5, 2}, {5, 0, 3, 2}, {3, 7, 5, 9}, {5, 7, 3, 9}} {
 		x1, y1 := at(d[0], d[1])
 		x2, y2 := at(d[2], d[3])
-		pocStrokeLine(ops, x1, y1, x2, y2, lineW, PocBoardLine)
+		pocStrokeLine(ops, x1, y1, x2, y2, lineW, ThemeBoardLine)
 	}
 	// 6. 楚河汉界（boardArt.tsx:71-76："楚 河" / "漢 界"，字号 cell*0.55）
 	riverPx := l.Cell * pocRiverFontSizeR
-	pocText(gtx, "楚 河", centerX-l.Cell*2, riverY, riverPx, PocRiverText, pocFontMedium)
-	pocText(gtx, "漢 界", centerX+l.Cell*2, riverY, riverPx, PocRiverText, pocFontMedium)
+	pocText(gtx, "楚 河", centerX-l.Cell*2, riverY, riverPx, ThemeRiverText, pocFontMedium)
+	pocText(gtx, "漢 界", centerX+l.Cell*2, riverY, riverPx, ThemeRiverText, pocFontMedium)
 	// 7. 兵/炮位十字角标（boardArt.tsx:78-96）
 	for _, m := range pocCrossMarks {
 		cx, cy := at(m[0], m[1])
@@ -183,8 +183,8 @@ func PocDrawBoardArt(gtx layout.Context, l PocBoardLayout, showFileNumbers bool)
 		for _, d := range [4][2]int{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
 			bx := cx + float32(d[0])*radius
 			by := cy + float32(d[1])*radius
-			pocStrokeLine(ops, bx, by, bx, by+float32(d[1])*length, lineW, PocBoardLine)
-			pocStrokeLine(ops, bx, by, bx+float32(d[0])*length, by, lineW, PocBoardLine)
+			pocStrokeLine(ops, bx, by, bx, by+float32(d[1])*length, lineW, ThemeBoardLine)
+			pocStrokeLine(ops, bx, by, bx+float32(d[0])*length, by, lineW, ThemeBoardLine)
 		}
 	}
 	// 8. 坐标标注（boardArt.tsx:97-118 / 08 §3.2 #4 双口径切换）
@@ -195,19 +195,19 @@ func PocDrawBoardArt(gtx layout.Context, l PocBoardLayout, showFileNumbers bool)
 		x, _ := at(c, 0)
 		if showFileNumbers {
 			// 08 §3.2：黑方顶部数字 1~9（左→右）、红方底部汉字一~九（右→左）
-			pocText(gtx, string(rune('1'+c)), x, topY, coordPx, PocRiverText, pocFontMedium)
-			pocText(gtx, pocFileNumbers[8-c], x, bottomY, coordPx, PocRiverText, pocFontMedium)
+			pocText(gtx, string(rune('1'+c)), x, topY, coordPx, ThemeRiverText, pocFontMedium)
+			pocText(gtx, pocFileNumbers[8-c], x, bottomY, coordPx, ThemeRiverText, pocFontMedium)
 		} else {
 			// Electron 锚点：ICCS files a-i 上下
-			pocText(gtx, string(pocFiles[c]), x, topY, coordPx, PocRiverText, pocFontMedium)
-			pocText(gtx, string(pocFiles[c]), x, bottomY, coordPx, PocRiverText, pocFontMedium)
+			pocText(gtx, string(pocFiles[c]), x, topY, coordPx, ThemeRiverText, pocFontMedium)
+			pocText(gtx, string(pocFiles[c]), x, bottomY, coordPx, ThemeRiverText, pocFontMedium)
 		}
 	}
 	for row := 0; row <= 9; row++ {
 		rank := 9 - row // 0=红方底线（board_painter.dart:129-172）
 		_, y := at(0, row)
-		pocText(gtx, string(rune('0'+rank)), fx-gap, y, coordPx, PocRiverText, pocFontMedium)
-		pocText(gtx, string(rune('0'+rank)), fx+pocBoardCols*l.Cell+gap, y, coordPx, PocRiverText, pocFontMedium)
+		pocText(gtx, string(rune('0'+rank)), fx-gap, y, coordPx, ThemeRiverText, pocFontMedium)
+		pocText(gtx, string(rune('0'+rank)), fx+pocBoardCols*l.Cell+gap, y, coordPx, ThemeRiverText, pocFontMedium)
 	}
 }
 
@@ -230,26 +230,26 @@ func PocDrawHighlights(gtx layout.Context, l PocBoardLayout, st *PocBoardState) 
 	if st.LastMove != nil {
 		for _, p := range []rules.Position{st.LastMove.From, st.LastMove.To} {
 			cx, cy := PocOffsetOf(l, p.Col, p.Row)
-			pocFillCircle(ops, cx, cy, l.PieceRadius, PocLastMove)
+			pocFillCircle(ops, cx, cy, l.PieceRadius, ThemeLastMove)
 		}
 	}
 	if st.Selected != nil {
 		cx, cy := PocOffsetOf(l, st.Selected.Col, st.Selected.Row)
-		pocFillCircle(ops, cx, cy, l.PieceRadius, PocSelected)
+		pocFillCircle(ops, cx, cy, l.PieceRadius, ThemeSelected)
 	}
 	for _, m := range st.LegalTargets {
 		cx, cy := PocOffsetOf(l, m.To.Col, m.To.Row)
 		if st.Grid[m.To.Row][m.To.Col] != nil {
 			pocStrokeCircle(ops, cx, cy, l.PieceRadius+l.Cell*pocHintRingExtraR,
-				l.Cell*pocHintRingWidthR, PocLegalHint)
+				l.Cell*pocHintRingWidthR, ThemeLegalHint)
 		} else {
-			pocFillCircle(ops, cx, cy, l.Cell*pocHintDotR, PocLegalHint)
+			pocFillCircle(ops, cx, cy, l.Cell*pocHintDotR, ThemeLegalHint)
 		}
 	}
 	if st.CheckKingPos != nil {
 		cx, cy := PocOffsetOf(l, st.CheckKingPos.Col, st.CheckKingPos.Row)
 		pocStrokeCircle(ops, cx, cy, l.PieceRadius+l.Cell*pocHintRingExtraR,
-			l.Cell*pocHintRingWidthR, PocCheckWarn)
+			l.Cell*pocHintRingWidthR, ThemeCheckWarn)
 	}
 }
 
@@ -257,14 +257,14 @@ func PocDrawHighlights(gtx layout.Context, l PocBoardLayout, st *PocBoardState) 
 func PocDrawPiece(gtx layout.Context, l PocBoardLayout, p *rules.Piece, cx, cy float32) {
 	ops := gtx.Ops
 	r := l.PieceRadius
-	sideCol := PocPieceRed
+	sideCol := ThemePieceRed
 	if !rules.IsRedSide(p.Side) {
-		sideCol = PocPieceBlack
+		sideCol = ThemePieceBlack
 	}
 	// 阴影（cy+radius*0.08, r*1.02, rgba(0,0,0,.25)）
 	pocFillCircle(ops, cx, cy+r*0.08, r*1.02, color.NRGBA{A: 0x40})
 	// 盘面
-	pocFillCircle(ops, cx, cy, r, PocPieceFace)
+	pocFillCircle(ops, cx, cy, r, ThemePieceFace)
 	// 内环描边（r*0.92，宽 r*0.1）
 	pocStrokeCircle(ops, cx, cy, r*0.92, r*0.1, sideCol)
 	// 汉字（radius*1.05，bold，衬线）

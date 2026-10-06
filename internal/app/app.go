@@ -1,11 +1,13 @@
-// Package app 装配层：窗口创建、单事件循环、事件总线（design_docs/00 §2/§3）。
-// 允许 import gioui.org 的包之一（铁律 #G1）；禁止承载领域逻辑。
+// Package app 装配层：窗口创建、单事件循环、事件总线、页面路由、生命周期派发
+// （design_docs/00 §2/§3、08 §1）。允许 import gioui.org 的包之一（铁律 #G1）；
+// 禁止承载领域逻辑。
 package app
 
 import (
 	"log"
 
 	"gioui.org/app"
+	"gioui.org/io/key"
 	"gioui.org/op"
 	"gioui.org/unit"
 
@@ -15,15 +17,6 @@ import (
 // Config 启动配置。
 type Config struct {
 	Version string
-}
-
-// AppEvent 事件总线条目：后台 goroutine 的结果/进度/错误统一经此回主循环
-// （00 §3：禁止后台 goroutine 直写 UI/state）。RequestID 供迟到结果丢弃
-// （铁律 #G5，M1' 起接线）；本骨架仅保证通道与排帧语义。
-type AppEvent struct {
-	RequestID string
-	Err       error
-	Payload   any
 }
 
 // eventsBuffer 事件通道容量：主循环每帧非阻塞 drain，正常不触顶；
@@ -36,43 +29,49 @@ type WindowConfig struct {
 	Width, Height unit.Dp
 }
 
-// Window 装配一个 gio 窗口 + 事件总线。
-// events 通道仅由主 goroutine 消费（单事件循环，铁律 #G3）。
+// Window 装配一个 gio 窗口 + 事件总线 + 页面路由 + 生命周期派发。
 type Window struct {
 	*app.Window
 
-	events chan AppEvent
+	bus       *EventBus
+	router    *Router
+	lifecycle *LifecycleRouter
 }
 
 // OpenWindow 创建窗口。
 func OpenWindow(cfg WindowConfig) *Window {
 	w := new(app.Window)
 	w.Option(app.Title(cfg.Title), app.Size(cfg.Width, cfg.Height))
-	return &Window{Window: w, events: make(chan AppEvent, eventsBuffer)}
+	return &Window{
+		Window:    w,
+		bus:       NewEventBus(eventsBuffer),
+		router:    NewRouter(),
+		lifecycle: NewLifecycleRouter(),
+	}
 }
 
 // Emit 供后台 goroutine 提交事件并排帧（Invalidate 线程安全）。
-// 非阻塞：通道满时丢弃并记日志。
 func (w *Window) Emit(ev AppEvent) {
-	select {
-	case w.events <- ev:
-	default:
-		log.Println("app: 事件通道满，事件被丢弃（requestId=", ev.RequestID, "）")
-	}
+	w.bus.Emit(ev)
 	w.Invalidate()
 }
 
-// Drain 主循环每帧非阻塞取走全部待处理事件（M1' 起按 requestId 分发到页面）。
-func (w *Window) Drain() []AppEvent {
-	var out []AppEvent
-	for {
-		select {
-		case ev := <-w.events:
-			out = append(out, ev)
-		default:
-			return out
-		}
+// Cancel 取消异步请求：迟到结果按 requestId 丢弃（铁律 #G5）。
+func (w *Window) Cancel(requestID string) { w.bus.Cancel(requestID) }
+
+// Router 路由表（页面注册）。
+func (w *Window) Router() *Router { return w.router }
+
+// Lifecycle 生命周期派发器（M2' 自动保存状态机挂接）。
+func (w *Window) Lifecycle() *LifecycleRouter { return w.lifecycle }
+
+// Navigate 页面切换并排帧（旧页 dispose 由 Router 负责）。
+func (w *Window) Navigate(rt Route) error {
+	if err := w.router.Navigate(rt); err != nil {
+		return err
 	}
+	w.Invalidate()
+	return nil
 }
 
 // EventTarget 页面可选实现：接收事件总线负载（Window.Run 每帧分发；
@@ -81,35 +80,123 @@ type EventTarget interface {
 	OnAppEvent(payload any)
 }
 
-// Run 主 goroutine 单事件循环（00 §3）：FrameEvent 构造 gtx → drain 事件总线 →
-// 页面事件分发 → 页面 Layout → 提交帧。窗口生命周期事件（DestroyEvent）在此收口。
+// Run 主 goroutine 单事件循环（00 §3）：FrameEvent 构造 gtx → drain 事件总线
+// （requestId 过滤）→ 页面事件分发 → 页面 Layout → 提交帧。
+// page 非空 = 单页模式（cmd/poc 使用）；nil = 走路由表当前页。
+// 窗口生命周期事件在此翻译为 LifecycleRouter 派发（07 §2 表）：
+// FocusEvent 失焦 → OnBlur；ClosingEvent → OnClose（M2' 自动保存后放行）。
 func (w *Window) Run(page ui.Page) error {
 	var ops op.Ops
+	currentPage := func() ui.Page {
+		if page != nil {
+			return page
+		}
+		return w.router.Page()
+	}
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
+			if p := currentPage(); p != nil {
+				if d, ok := p.(Disposer); ok {
+					d.Dispose()
+				}
+			}
 			return e.Err
+		case *app.ClosingEvent:
+			// 关闭请求：M2' 在此自动保存（有界等待 best-effort，07 §2）后放行；
+			// M1' 直接放行退出。
+			DispatchCloseRequest(w.lifecycle)
+		case key.FocusEvent:
+			DispatchFocusChanged(w.lifecycle, e.Focus)
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
-			if t, ok := page.(EventTarget); ok {
-				for _, ev := range w.Drain() {
+			cur := currentPage()
+			for _, ev := range w.bus.Drain() {
+				if t, ok := cur.(EventTarget); ok {
 					t.OnAppEvent(ev.Payload)
 				}
-			} else {
-				w.Drain()
 			}
-			page.Layout(gtx)
+			if cur != nil {
+				cur.Layout(gtx)
+			}
 			e.Frame(gtx.Ops)
 		}
 	}
 }
 
-// Run 组装默认主页并进入事件循环（main.go 调用）。
+// Run 组装主页 + 7 入口路由并进入事件循环（main.go 调用）。
 func Run(cfg Config) error {
 	w := OpenWindow(WindowConfig{
 		Title:  "中国象棋 Ultra（Gio 版）",
 		Width:  unit.Dp(1024),
 		Height: unit.Dp(768),
 	})
-	return w.Run(&ui.Placeholder{Version: cfg.Version})
+	w.Router().Register(RouteHome, ui.NewHomePage(ui.HomePageHooks{
+		OnNavigate: func(id ui.EntryID) {
+			if err := w.Navigate(routeOfEntry(id)); err != nil {
+				log.Println("app: 导航失败:", err)
+			}
+		},
+		OnOpenSettings: func() {
+			log.Println("app: 全局设置入口（M2' 设置弹窗落地）")
+		},
+	}))
+	// 7 入口页 M2' 起逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsAi, RouteHumanVsLlm, RouteLlmVsLlm, RouteHumanVsHuman, RouteStudio, RouteCorpus} {
+		rt := rt
+		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
+			Title: titleOfRoute(rt),
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		}))
+	}
+	if err := w.Navigate(RouteHome); err != nil {
+		return err
+	}
+	return w.Run(nil)
+}
+
+// routeOfEntry 主页入口 ID → 路由。
+func routeOfEntry(id ui.EntryID) Route {
+	switch id {
+	case ui.EntryEndgameSelect:
+		return RouteEndgameSelect
+	case ui.EntryHumanVsAi:
+		return RouteHumanVsAi
+	case ui.EntryHumanVsLlm:
+		return RouteHumanVsLlm
+	case ui.EntryLlmVsLlm:
+		return RouteLlmVsLlm
+	case ui.EntryHumanVsHuman:
+		return RouteHumanVsHuman
+	case ui.EntryStudio:
+		return RouteStudio
+	case ui.EntryCorpus:
+		return RouteCorpus
+	}
+	return RouteHome
+}
+
+// titleOfRoute 占位页标题。
+func titleOfRoute(rt Route) string {
+	switch rt {
+	case RouteEndgameSelect:
+		return "残局选关"
+	case RouteHumanVsAi:
+		return "人机对战"
+	case RouteHumanVsLlm:
+		return "人机 LLM"
+	case RouteLlmVsLlm:
+		return "LLM vs LLM"
+	case RouteHumanVsHuman:
+		return "双人对弈"
+	case RouteStudio:
+		return "残局工作室"
+	case RouteCorpus:
+		return "棋谱库"
+	}
+	return string(rt)
 }

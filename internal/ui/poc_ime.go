@@ -102,7 +102,7 @@ func pocFontRows() []pocFontRow {
 // Layout 输入区 + 提交回显 + 字体链样例。
 func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, PocBackground)
+	paint.Fill(gtx.Ops, ThemeSurface)
 
 	if !p.clipWrote {
 		p.clipWrote = true
@@ -142,18 +142,18 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 		children := []layout.FlexChild{
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				t := material.H5(pocTheme, "POC-3 中文 IME + 字体回退链")
-				t.Color = PocText
+				t.Color = ThemeOnSurface
 				return t.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				b := material.Body2(pocTheme, "输入框已自动聚焦、样本已写入剪贴板。实测：①fcitx5(XIM) 键入 ②Windows IME 经 RDP ③Ctrl+V 粘贴")
-				b.Color = PocText
+				b.Color = ThemeOnSurface
 				return b.Layout(gtx)
 			}),
 			layout.Rigid(p.layoutEditor),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				t := material.Body2(pocTheme, "已提交文本（ChangeEvent 回读）→ "+p.committed)
-				t.Color = PocPieceRed
+				t.Color = ThemePieceRed
 				return t.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -171,7 +171,7 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						t := material.Body2(pocTheme, "Ctrl+V 走 WSLg 桥接（CJK 乱码）；本按钮走 powershell 管道（UTF-8 正确）")
-						t.Color = PocText
+						t.Color = ThemeOnSurface
 						return t.Layout(gtx)
 					}),
 				)
@@ -182,7 +182,7 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				t := material.Body2(pocTheme, "字体回退链（同一混排串 × 四种 Font 配置）：")
-				t.Color = PocText
+				t.Color = ThemeOnSurface
 				return t.Layout(gtx)
 			}),
 		}
@@ -191,12 +191,12 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 			children = append(children,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					head := material.Body2(pocTheme, row.name+"（"+row.desc+"）")
-					head.Color = PocBoardLine
+					head.Color = ThemeBoardLine
 					return head.Layout(gtx)
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					l := material.H5(pocTheme, sample)
-					l.Color = PocText
+					l.Color = ThemeOnSurface
 					l.Font = row.fnt
 					return l.Layout(gtx)
 				}),
@@ -248,12 +248,12 @@ func (p *PocIme) layoutEditor(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, clip.Rect{Max: gtx.Constraints.Max}.Op())
 				pocStrokeRect(gtx.Ops, 0, 0, float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y),
-					float32(gtx.Dp(1)), PocBoardLine)
+					float32(gtx.Dp(1)), ThemeBoardLine)
 				return layout.Dimensions{Size: gtx.Constraints.Max}
 			}),
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				ed := material.Editor(pocTheme, &p.ed, "在此输入中文（IME）…")
-				ed.Color = PocText
+				ed.Color = ThemeOnSurface
 				ed.TextSize = unit.Sp(16)
 				return ed.Layout(gtx)
 			}),

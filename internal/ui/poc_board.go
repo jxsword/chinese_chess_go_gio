@@ -62,7 +62,7 @@ func NewPocBoard() *PocBoard {
 // Layout 工具行 + 棋盘区。
 func (p *PocBoard) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, PocBackground)
+	paint.Fill(gtx.Ops, ThemeSurface)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(p.layoutToolbar),
 		layout.Flexed(1, p.layoutBoard),
@@ -75,9 +75,9 @@ func (p *PocBoard) layoutToolbar(gtx layout.Context) layout.Dimensions {
 		gtx.Execute(op.InvalidateCmd{})
 	}
 	title := material.H5(pocTheme, "POC-1 棋盘自绘（08 §3.2 全要素）")
-	title.Color = PocText
+	title.Color = ThemeOnSurface
 	hint := material.Body2(pocTheme, "点击己方棋子选中 → 绿点/绿环为合法目标 → 点目标落子；连续点击可对弈")
-	hint.Color = PocText
+	hint.Color = ThemeOnSurface
 	btn := material.Button(pocTheme, &p.toggle, "切换坐标口径")
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,

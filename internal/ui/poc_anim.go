@@ -103,7 +103,7 @@ func NewPocAnim() *PocAnim {
 // Layout 工具行（FPS/吞输入计数/时长切换/重放）+ 棋盘。
 func (p *PocAnim) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, PocBackground)
+	paint.Fill(gtx.Ops, ThemeSurface)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(p.layoutToolbar),
 		layout.Flexed(1, p.layoutBoard),
@@ -127,11 +127,11 @@ func (p *PocAnim) layoutToolbar(gtx layout.Context) layout.Dimensions {
 		p.resetBoard()
 	}
 	title := material.H5(pocTheme, "POC-2 220ms 两阶段飞行动画")
-	title.Color = PocText
+	title.Color = ThemeOnSurface
 	fps := material.Body2(pocTheme, "FPS: ")
-	fps.Color = PocText
+	fps.Color = ThemeOnSurface
 	stats := material.Body2(pocTheme, " 吞输入: ")
-	stats.Color = PocText
+	stats.Color = ThemeOnSurface
 	slow := material.Button(pocTheme, &p.slowBtn, "1000ms 慢速")
 	norm := material.Button(pocTheme, &p.normBtn, "220ms 标准")
 	replay := material.Button(pocTheme, &p.replayBtn, "重放")
@@ -145,13 +145,13 @@ func (p *PocAnim) layoutToolbar(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(fps.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				l := material.Body2(pocTheme, itoa(p.fps))
-				l.Color = PocText
+				l.Color = ThemeOnSurface
 				return l.Layout(gtx)
 			}),
 			layout.Rigid(stats.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				l := material.Body2(pocTheme, itoa(p.swallowed))
-				l.Color = PocText
+				l.Color = ThemeOnSurface
 				return l.Layout(gtx)
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {

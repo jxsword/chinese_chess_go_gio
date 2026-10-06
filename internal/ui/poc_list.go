@@ -82,7 +82,7 @@ func NewPocList() *PocList {
 // Layout 统计条 + 虚拟化列表。
 func (p *PocList) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, PocBackground)
+	paint.Fill(gtx.Ops, ThemeSurface)
 
 	start := time.Now()
 	defer func() {
@@ -142,7 +142,7 @@ func (p *PocList) layoutRow(gtx layout.Context, i int) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						t := material.Body1(pocTheme, g.title)
-						t.Color = PocText
+						t.Color = ThemeOnSurface
 						return t.Layout(gtx)
 					}),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -150,14 +150,14 @@ func (p *PocList) layoutRow(gtx layout.Context, i int) layout.Dimensions {
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						b := material.Body2(pocTheme, g.category)
-						b.Color = PocBoardLine
+						b.Color = ThemeBoardLine
 						return b.Layout(gtx)
 					}),
 				)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				t := material.Body2(pocTheme, g.date+" · "+itoa(g.moves)+"手")
-				t.Color = PocBoardLine
+				t.Color = ThemeBoardLine
 				return t.Layout(gtx)
 			}),
 		)
@@ -189,7 +189,7 @@ func (p *PocList) layoutStats(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				t := material.H5(pocTheme, "POC-4 长列表虚拟化")
-				t.Color = PocText
+				t.Color = ThemeOnSurface
 				return t.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -200,7 +200,7 @@ func (p *PocList) layoutStats(gtx layout.Context) layout.Dimensions {
 				t := material.Body1(pocTheme, fmt.Sprintf(
 					"%d 局 · FPS %d · 帧开销 avg %v / max %v · %s",
 					len(p.games), p.fps, avg.Round(time.Microsecond), max.Round(time.Microsecond), mode))
-				t.Color = PocText
+				t.Color = ThemeOnSurface
 				return t.Layout(gtx)
 			}),
 		)
