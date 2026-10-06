@@ -58,6 +58,7 @@ type HumanVsAiPage struct {
 	// aiRequestID 非空 = 在途；取消/换新请求时置空，迟到回执按 id 丢弃。
 	aiRequestID string
 	aiThinking  bool
+	aiStartedAt time.Time // 触发时刻（DR-G004 最小思考呈现计时基准）
 
 	// 进页恢复（07 §2）：取档回执前锁输入（#5），回执后按决策解锁并按需触发 AI。
 	restoreID      string
@@ -328,6 +329,11 @@ func (p *HumanVsAiPage) Dispose() {
 
 // ---- AI 应手调度（human_vs_ai_page.tsx triggerAiMove 的 requestId 形态）----
 
+// minThinkDuration AI 应手最小思考呈现（DR-G004）：回执早于触发后此时长到达时，
+// 保持思考态并延迟余量后二次投递。引擎 timeMs 为上限非下限（深度 2~5 常规局面
+// <0.4s 算完），无此呈现则思考态不可感知；300ms 兼顾可感知与不拖沓。
+const minThinkDuration = 300 * time.Millisecond
+
 // triggerAiMove 发起 AI 应手：lockInput → Runner 异步搜索 → 回执无条件解锁
 // （P0-1）；迟到回执由 requestId 丢弃（#4/#G5）。
 func (p *HumanVsAiPage) triggerAiMove() {
@@ -338,6 +344,7 @@ func (p *HumanVsAiPage) triggerAiMove() {
 	id := p.env.NewRequestID("ai")
 	p.aiRequestID = id
 	p.aiThinking = true
+	p.aiStartedAt = time.Now()
 	// DR-018：对局方 fenHistory 拷贝传入（重复治理 L1/L2 随复制物内置）
 	snap := p.store.State()
 	p.store.VM.LockInput()
@@ -364,9 +371,16 @@ func (p *HumanVsAiPage) abandonAi() {
 
 // onAiMoveDone AI 应手回执（主 goroutine）：无论作废与否一律解锁（P0-1）；
 // requestId 不匹配 = 迟到/非当前请求 → 丢弃（总线已丢取消 id，此处防御）。
+// 回执早于 minThinkDuration 到达时保持思考态，AfterFunc 余量后按原 requestId
+// 二次投递（DR-G004）；延迟期取消 = Cancel(id) 总线丢弃 + 此处 stale id 防御。
 func (p *HumanVsAiPage) onAiMoveDone(ev EngineMoveDone) {
 	if ev.RequestID != p.aiRequestID {
 		return
+	}
+	if remaining := minThinkDuration - time.Since(p.aiStartedAt); remaining > 0 {
+		ev := ev
+		time.AfterFunc(remaining, func() { p.env.Emit(ev.RequestID, ev, ev.Err) })
+		return // 思考态与输入锁保持，待二次投递
 	}
 	p.aiRequestID = ""
 	p.aiThinking = false

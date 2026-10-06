@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/engine"
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
@@ -32,6 +33,12 @@ func newAiEnvFixture(autoSave bool) *aiEnvFixture {
 	env.NewRequestID = func(prefix string) string { return fmt.Sprintf("%s-%d", prefix, seq.Add(1)) }
 	f.page = newHumanVsAiPage(env, HumanVsAiHooks{}, f.ai)
 	return f
+}
+
+// replyNow 回填触发时刻（模拟引擎已搜满 minThinkDuration——测试延迟应用语义时
+// 使回执立即生效）。
+func (f *aiEnvFixture) replyNow() {
+	f.page.aiStartedAt = time.Now().Add(-minThinkDuration)
 }
 
 // lastAiRequest 最近一次 AI 请求载荷。
@@ -152,6 +159,7 @@ func TestAiPageAiMoveAppliesAndUnlocks(t *testing.T) {
 
 	// 黑炮应手（合法着法，PlayMove 校验通过）
 	move := *aiReply()
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move})
 
 	if f.page.aiThinking || f.page.aiRequestID != "" {
@@ -199,6 +207,7 @@ func TestAiPageLateResponseDiscardedAfterNewGame(t *testing.T) {
 
 	// 迟到回执：不落盘、不解锁残留、不改思考态
 	move := *aiReply()
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: staleID, Move: &move})
 	if len(f.page.store.State().MoveHistory) != 0 {
 		t.Fatal("迟到回执不得落盘")
@@ -218,6 +227,7 @@ func TestAiPageEngineFailureResignsAi(t *testing.T) {
 	}
 	f.page.onPlayerMoved()
 
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: f.page.aiRequestID, Err: errors.New("boom")})
 	// 解锁由 vm.Resign 自带（state 层用例覆盖），此处断言判负与提示
 	r := f.page.store.State().Result
@@ -239,6 +249,7 @@ func TestAiPageNoLegalMoveUnlocksOnly(t *testing.T) {
 	}
 	f.page.onPlayerMoved()
 
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: f.page.aiRequestID})
 	if !f.canTapSelect(rules.Black) { // 仍轮黑方：以黑子选中探测解锁
 		t.Fatal("应解锁")
@@ -288,6 +299,7 @@ func TestAiPageUndoRoundWhenIdle(t *testing.T) {
 	f.page.onPlayerMoved()
 	id := f.page.aiRequestID
 	move := *aiReply()
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move})
 
 	f.page.undoMove()
@@ -322,6 +334,7 @@ func TestAiPageSwitchSideAiFirst(t *testing.T) {
 
 	// 执黑时 AI（红）应手落盘 → 轮玩家（黑）：炮二平五（7,7)→(4,7)
 	move := rules.Move{From: rules.Pos(7, 7), To: rules.Pos(4, 7)}
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: firstID, Move: &move})
 	if f.page.store.VM.IsRedTurn() {
 		t.Fatal("AI 落盘后应轮黑方")
@@ -371,6 +384,7 @@ func TestAiPageDisposeCancelsInFlight(t *testing.T) {
 		t.Fatalf("离页应取消在途请求: %v", f.ai.cancels)
 	}
 	move := *aiReply()
+	f.replyNow()
 	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move})
 	if len(f.page.store.State().MoveHistory) != 1 {
 		t.Fatal("离页后迟到回执不得落盘")
@@ -446,5 +460,85 @@ func TestAiPageDifficultySelection(t *testing.T) {
 	p := f.lastAiRequest(t)
 	if p.Difficulty != 5 {
 		t.Fatalf("下一次思考应用新档位: %d", p.Difficulty)
+	}
+}
+
+// DR-G004：回执早于 minThinkDuration 到达 → 保持思考态与输入锁，延迟余量后
+// 二次投递并应用（"AI 正在思考..."可感知）。
+func TestAiPageMinThinkDefersApply(t *testing.T) {
+	f := newAiEnvFixture(true)
+	defer f.page.Dispose()
+	f.page.OnAppEvent(DbLoadDone{Mode: state.ModeHumanVsAi})
+	if !f.playPlayerMove() {
+		t.Fatal("玩家走子应成行")
+	}
+	f.page.onPlayerMoved()
+	id := f.page.aiRequestID
+	historyBefore := len(f.page.store.State().MoveHistory)
+
+	// 回执立即到达（远早于 300ms）：不得立即应用
+	move := *aiReply()
+	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move})
+	if len(f.page.store.State().MoveHistory) != historyBefore {
+		t.Fatal("最小思考期内不得落盘")
+	}
+	if !f.page.aiThinking || f.page.aiRequestID != id {
+		t.Fatal("最小思考期内应保持思考态")
+	}
+	if f.canTapSelect(rules.Red) {
+		t.Fatal("最小思考期内输入应保持锁定")
+	}
+
+	// 等待 AfterFunc 余量二次投递 → 消费回执 → 应用
+	deadline := time.Now().Add(2 * time.Second)
+	var redelivered *EngineMoveDone
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		for _, e := range f.emitted {
+			if d, ok := e.(EngineMoveDone); ok && d.RequestID == id {
+				redelivered = &d
+			}
+		}
+		f.mu.Unlock()
+		if redelivered != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if redelivered == nil {
+		t.Fatal("延迟余量后应二次投递回执")
+	}
+	f.page.OnAppEvent(*redelivered)
+	if len(f.page.store.State().MoveHistory) != historyBefore+1 {
+		t.Fatal("二次投递后应落盘")
+	}
+	if f.page.aiThinking || f.page.aiRequestID != "" {
+		t.Fatal("应用后应退出思考态")
+	}
+}
+
+// DR-G004：延迟期取消（新局/悔棋/离页）→ 二次投递按 id 丢弃，不落盘（#G5）。
+func TestAiPageMinThinkCancelDuringDeferral(t *testing.T) {
+	f := newAiEnvFixture(true)
+	defer f.page.Dispose()
+	f.page.OnAppEvent(DbLoadDone{Mode: state.ModeHumanVsAi})
+	if !f.playPlayerMove() {
+		t.Fatal("玩家走子应成行")
+	}
+	f.page.onPlayerMoved()
+	id := f.page.aiRequestID
+
+	move := *aiReply()
+	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move}) // 进入延迟期
+	f.page.doNewGame()                                            // 延迟期取消
+
+	time.Sleep(minThinkDuration + 200*time.Millisecond)
+	// 二次投递即使发生（总线/页面双层丢弃），也不得落盘
+	f.page.OnAppEvent(EngineMoveDone{RequestID: id, Move: &move})
+	if len(f.page.store.State().MoveHistory) != 0 {
+		t.Fatal("延迟期取消后回执不得落盘")
+	}
+	if f.page.aiThinking || f.page.aiRequestID != "" {
+		t.Fatal("取消后应退出思考态")
 	}
 }
