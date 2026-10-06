@@ -28,6 +28,9 @@ func main() {
 		usage()
 	}
 	w := app.OpenWindow(app.WindowConfig{Title: title, Width: unit.Dp(720), Height: unit.Dp(920)})
+	if binder, ok := page.(interface{ BindEvents(func(any)) }); ok {
+		binder.BindEvents(func(ev any) { w.Emit(app.AppEvent{Payload: ev}) })
+	}
 	if err := w.Run(page); err != nil {
 		fmt.Fprintln(os.Stderr, "poc:", err)
 		os.Exit(1)

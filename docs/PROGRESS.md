@@ -43,6 +43,11 @@
 
 回归：gofmt/vet/`go test ./... -race` 全绿（恢复契约用例 4 个：实测样本/正常不误改/垃圾拒绝/混排有损拒绝）。
 
+**复验轮（同日二次反馈"按钮仍乱码"）——两项根因补修**：
+1. powershell.exe stdout 默认按系统 ANSI/OEM 代码页（zh-CN=GBK）编码→WSL 侧按 UTF-8 解读即乱码（复现：直接 Get-Clipboard 输出 `��Windows�и...`；修法：前置 `[Console]::OutputEncoding=UTF8`，复验输出正确）。首轮端到端测试为假阳性——clip.exe 按 GBK 解码 stdin 与 powershell 按 GBK 编码 stdout 恰好互逆。
+2. 同步 exec 从 Gio 主 goroutine 内起 interop 进程挂起（`Cmd.Wait` 永阻塞；shell/纯 Go 探针正常，栈留证）——粘贴改异步：后台 goroutine→`Window.Emit` 通道→主循环 `OnAppEvent`（app 新增 `EventTarget` 页面接口），顺带满足 #G3。
+端到端（Set-Clipboard 正确中文→点按钮→编辑器完整正确中文）与 POC_WINPASTE 自动触发均验证通过。
+
 ## 已知问题（新增）
 
 - **KG-002**：gio List.ScrollBy 逐帧程序化滚动 → 文本绘制病理慢路径（黑屏）；规避=直接推进 Position.First，M5' 用手势滚动。

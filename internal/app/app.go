@@ -75,8 +75,14 @@ func (w *Window) Drain() []AppEvent {
 	}
 }
 
+// EventTarget 页面可选实现：接收事件总线负载（Window.Run 每帧分发；
+// 页面侧在主 goroutine 内消费——铁律 #G3 的正方向）。
+type EventTarget interface {
+	OnAppEvent(payload any)
+}
+
 // Run 主 goroutine 单事件循环（00 §3）：FrameEvent 构造 gtx → drain 事件总线 →
-// 页面 Layout → 提交帧。窗口生命周期事件（DestroyEvent）在此收口。
+// 页面事件分发 → 页面 Layout → 提交帧。窗口生命周期事件（DestroyEvent）在此收口。
 func (w *Window) Run(page ui.Page) error {
 	var ops op.Ops
 	for {
@@ -85,7 +91,13 @@ func (w *Window) Run(page ui.Page) error {
 			return e.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
-			w.Drain()
+			if t, ok := page.(EventTarget); ok {
+				for _, ev := range w.Drain() {
+					t.OnAppEvent(ev.Payload)
+				}
+			} else {
+				w.Drain()
+			}
 			page.Layout(gtx)
 			e.Frame(gtx.Ops)
 		}

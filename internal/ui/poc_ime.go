@@ -38,6 +38,33 @@ type PocIme struct {
 	winPasteArmed bool             // POC_WINPASTE=1 自动触发取证
 	winPasteDone  bool
 	winPasteAt    time.Time
+
+	emit     func(ev any) // 装配层注入（Window.Emit）；后台 goroutine 可调用
+	inFlight bool         // 粘贴请求在途（仅主 goroutine 读写）
+}
+
+// BindEvents 装配层注入事件发送函数（后台 goroutine 仅经它回主循环，铁律 #G3）。
+func (p *PocIme) BindEvents(emit func(ev any)) { p.emit = emit }
+
+// OnAppEvent 主循环消费粘贴结果（payload 由粘贴 goroutine 经 Window.Emit 发出）。
+func (p *PocIme) OnAppEvent(payload any) {
+	res, ok := payload.(pocPasteResult)
+	if !ok {
+		return
+	}
+	p.inFlight = false
+	if res.Err != nil {
+		log.Printf("poc3: windows 剪贴板读取失败: %v", res.Err)
+		return
+	}
+	p.ed.SetText(p.ed.Text() + res.Text)
+	log.Printf("poc3: windows 剪贴板粘贴 %q（runes=%d）", res.Text, utf8.RuneCountInString(res.Text))
+}
+
+// pocPasteResult 粘贴结果事件负载。
+type pocPasteResult struct {
+	Text string
+	Err  error
 }
 
 // NewPocIme 构造 POC-3 页。POC_WINPASTE=1 → 启动 1.5s 后自动触发一次
@@ -87,7 +114,7 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 			p.winPasteAt = gtx.Now.Add(1500 * time.Millisecond)
 		} else if !gtx.Now.Before(p.winPasteAt) && !p.winPasteDone {
 			p.winPasteDone = true
-			p.pasteFromWindows(gtx)
+			p.requestPasteFromWindows()
 		} else if !p.winPasteDone {
 			// 注：InvalidateCmd{At: 未来时刻} 在 WSLg 实测不排帧（KG-004 记录），
 			// 用立即排帧轮询（1.5s 窗口，POC 可接受）。
@@ -95,7 +122,7 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 	if p.winPasteBtn.Clicked(gtx) {
-		p.pasteFromWindows(gtx)
+		p.requestPasteFromWindows()
 	}
 	// Editor 事件：Change=文本变化（含 IME commit 后）。
 	for {
@@ -179,29 +206,34 @@ func (p *PocIme) Layout(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-// pasteFromWindows KG-004 可靠粘贴路径：绕过 WSLg 剪贴板桥接（对 CJK 乱码且有损），
-// 经 powershell.exe Get-Clipboard 控制台管道（UTF-8）读取 Windows 剪贴板。
-// POC 期同步执行（阻塞事件循环数百 ms 可接受）；M4' 正式实现须走 app.Emit 异步（铁律 #G3）。
-func (p *PocIme) pasteFromWindows(gtx layout.Context) {
-	candidates := []string{
-		"/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", // WSL interop PATH 未注入时的兜底
-		"powershell.exe",
-	}
-	var out []byte
-	var err error
-	for _, exe := range candidates {
-		out, err = exec.Command(exe, "-NoProfile", "-Command", "Get-Clipboard").Output()
-		if err == nil {
-			break
-		}
-	}
-	if err != nil {
-		log.Printf("poc3: windows 剪贴板读取失败: %v", err)
+// requestPasteFromWindows 发起异步粘贴（KG-004 可靠路径）：绕过 WSLg 剪贴板桥接
+// （对 CJK 乱码且有损），后台 goroutine 经 powershell.exe Get-Clipboard 读取
+// Windows 剪贴板，结果经 emit（Window.Emit 通道）回主循环。
+// 【验收复验修正】①powershell stdout 默认按系统 ANSI/OEM 代码页（zh-CN=GBK）编码，
+// 必须先置 [Console]::OutputEncoding=UTF8；②同步 exec 不可行——从 Gio 主 goroutine
+// （线程亲和 cgo）内起 interop 进程会挂起（Wait 永阻塞，栈留证），且同步执行本就
+// 违反铁律 #G3。M4' 表单沿用此异步形态。
+func (p *PocIme) requestPasteFromWindows() {
+	if p.emit == nil || p.inFlight {
 		return
 	}
-	text := strings.TrimSpace(string(out))
-	p.ed.SetText(p.ed.Text() + text)
-	log.Printf("poc3: windows 剪贴板粘贴 %q（runes=%d）", text, utf8.RuneCountInString(text))
+	p.inFlight = true
+	go func() {
+		candidates := []string{
+			"/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", // interop PATH 未注入时的兜底
+			"powershell.exe",
+		}
+		var out []byte
+		var err error
+		for _, exe := range candidates {
+			out, err = exec.Command(exe, "-NoProfile", "-Command",
+				"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard").Output()
+			if err == nil {
+				break
+			}
+		}
+		p.emit(pocPasteResult{Text: strings.TrimSpace(string(out)), Err: err})
+	}()
 }
 
 // layoutEditor 输入框（白底描边框内嵌 Editor，固定尺寸防撑满窗口）。
