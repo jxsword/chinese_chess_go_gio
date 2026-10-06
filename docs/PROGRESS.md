@@ -2,10 +2,10 @@
 
 ## 当前状态
 
-**M4' LLM 全链路对接——验收通过**（2026-10-07，tag v0.4.0-m4'；T4'.1~T4'.3 +
-12 轮验收反馈修复/优化；真实端点（百炼）实测通过；修复轮期间发现并处置
-4 个 Gio 层真缺陷，见 M4' 完成清单）。
-下一里程碑 M5'（语料 + 棋谱对接，启动提示词=design_docs/11 §4.6，全新会话粘贴）。
+**M5' 语料 + 棋谱对接——开发完成，待用户手测验收**（2026-10-07；
+T5'.1~T5'.3 完成，T5'.4 文件对话框决策项已出决策矩阵**待用户定案后实现**）。
+验证门：语料下载/解析手测（待用户）+ 14 万局长列表性能实测达标 + 导出快照与
+上游逐字符一致。请手测清单见文末（M5' 节）。
 
 ## 里程碑总览
 
@@ -17,7 +17,76 @@
 | **M2' 双人对战 + 存储** | ✅ 验收通过（tag v0.2.0-m2'） | T2'.1~T2'.4 完成；翻译用例回归+13 项手测通过；验收反馈一项修复（KG-009 弹窗居中）复验通过 |
 | **M3' 引擎对接 + 人机页** | ✅ 验收通过（tag v0.3.0-m3'） | T3'.1~T3'.2 完成；对拍回归全绿（复制物零改动）+ cancel/迟到丢弃用例 + 难度 5 实测 1.54s（≤7.5s）；验收反馈轮两项修复（chips 指针区/侧板溢出）+ 澄清（难度耗时）+ DR-G004 最小思考呈现 |
 | **M4' LLM 全链路对接** | ✅ 验收通过（tag v0.4.0-m4'） | T4'.1~T4'.3 完成 + 12 轮反馈修复/优化（4 个 Gio 层真缺陷：每帧新建列表/嵌套列表事件盗取/列表漏设 Vertical/保存按钮未消费点击；界面缩放设置、Key 掩码显示、预设下拉式展开、百炼预设）；真实端点（百炼）一整局实测通过 |
-| M5'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+| **M5' 语料 + 棋谱对接** | 🔶 待验收 | T5'.1~T5'.3 完成；T5'.4 决策矩阵待定案；性能实测 FPS 76~87 / avg ≤5.7ms；导出快照与上游一致 |
+| M6'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+
+## M5' 完成清单（逐任务 commit）
+
+| 任务 | 交付 | 验收结果 |
+|---|---|---|
+| 文档先行 | 00 §4 登记语料/重放事件面（`corpus:scan`/`corpus:entries`/`corpus:batch`/`corpus:pgnindex`/`corpus:pgngame`/`corpus:progress`/`corpus:download`/`replay:tick`；parser:progress 修订为"Gio 直调不另设，批次级进度=corpus:batch"）+ 08 §8 M5' 落地注记（K4 纪律）（commit 21b778d） | — |
+| T5'.1 状态层 | `state/corpusbrowser.go`（corpusBrowser.ts 372 行翻译：ParsedPuzzleView 投影/VisibleItems 筛选排序/PgnPageSlice 分页/CorpusIO+CorpusDriver 注入式异步编排/分批 128+generation 代次+协作取消通道）（commit 78ab697） | 上游 corpusBrowser.spec.ts 11 用例逐条翻译 + 4 条翻译扩展（分批 128/失败批保持 nil/目录缺失引导/迟到回执丢弃），`-race` 全绿 |
+| T5'.1 语料库页 | `ui/corpusclient.go`（复制物直调 CorpusIO + 下载客户端）+ `ui/corpuspage.go`（下载引导含**取消按钮**防错 #10/分类列/XQF 面板/虚拟化行卡）+ `app/corpus.go`（corpusRoot 解析+工厂注册）+ cmd/poc corpus 冒烟模式（commit efb4fdf） | X11 截图取证 corpus_missing.png（缺失引导）/corpus_main.png（样例 XQF 端到端扫描→分批解析→77 着/难度/残局题投影） |
+| T5'.2 PGN 面板 | 虚拟化连续长列表（KG-002 口径手势滚动）+ 搜索（Editor+IME，过滤缓存 dirty）+ 搜索跳转 + 行点击进详情 + `ui/corpusperf.go` 性能实测脚手架（CC_GIO_SYNTH_* 注入，生产零影响）+ 搜索框 KG-004 粘贴按钮（commit dc1f9e6） | **14 万局滚动实测（最坏口径：每帧重绘+每帧排帧）：稳态 FPS 76~87、帧开销 avg 3.2~5.7ms / max ≤6.5ms（预算 16.7ms）**；证据 corpus_pgn_perf*.png + perf 日志 |
+| T5'.3 重放器+导出+进入对战 | `state/gamerecord.go`+`state/pgnwriter.go`（pgnWriter.ts 逐字翻译）+ `ui/replayview.go`（静态棋盘/步进/800ms 自动播放（goroutine+stop 通道+replay:tick，gen 迟到丢弃）/中文记谱走法列表/导出 PGN 复制（clipboard.WriteOp）/进入对战弹层）+ `ui/battle.go`（BattleMode 四选项+BattleStartFen）+ app pendingBattle 一次性消费 → 4 对局页构造器跳过恢复、以起点 FEN 开局、canSave=false（防错 #6）（commit f31e237） | **PGN 导出快照与上游逐字符一致**（2 快照用例）+ pgnwriter 8 用例 + 重放器状态机 8 用例 + 进入对战页用例 1，-race 全绿；截图 replay_detail4.png（77 着完整呈现）/replay_playing.png（4/77 自动推进） |
+| T5'.4 文件对话框 | **决策矩阵已出（见下），待用户定案后实现**；受影响功能：下载引导"选择其他棋谱目录"、"导出 PGN 文件"（保存对话框） | ⬜ |
+
+### M5' 复审记录（§6.1 两轮，commit c028ff8）
+
+- 第一轮·语义一致性：corpusBrowser.ts 逐方法对照（可见列表/分批/generation/打开单局文案逐条）；CorpusBrowserPage/PuzzleDetailView 逐节对照；事件名与 00 §4 清单一致。修正：详情元信息补难度文案；parser:progress 登记行修订（Gio 直调形态不另设）。
+- 第二轮·缺陷扫描：**修复 1 个生产形态真竞态**——`opDone` 通道字段被工作 goroutine（stale 探针）与主 goroutine（beginOp close+重建）并发读写，同步测试驱动掩盖；改为闭包值捕获 + staleChan。另：粘贴按钮 28→34dp（material.Button 内边距裁切文字，M3'/M4' 同类教训）；清理未用字段。
+- §6.3 铁律自检（机器 grep）：#G1 六包+state 无 gio/net-http import（仅注释命中）；#G2 复制物 diff（v0.4.0-m4' 起）=零改动；#G3 新增 goroutine 仅 emit/自有通道；#G4 语料 store 为页面实例、对局页全部工厂；#G5 requestId+代次双收口（离页取消解析/下载）；#G8 ui/state 无网络出口。
+
+### M5' 语义偏离注记（有意，登记备查）
+
+1. **PGN 长列表虚拟化连续滚动替代上游 DOM 分页呈现**（08 §8 注记①，KG-002 口径）：上游 50 局/页翻页是 Web 渲染约束；Gio layout.List 虚拟化下连续滚动+搜索跳转等价且为 08 既定口径。pgnPageSlice 分页语义保留于状态层并有翻译用例（Gio UI 不消费分页控件）。
+2. **重放器 M5' 为基础版**（06 附录 §7 既定）：步进+800ms 自动播放+停止回开局；速度档位/循环/自定义间隔随 M6' puzzleDemo 状态机（T6'.5）。
+3. **离开语料页取消在途解析/下载**（#G5 口径，工厂页 Dispose）：上游为 WebView 后台继续+进度监听断开；本仓离页即取消（半成品+ETag sidecar 保留，重试续传——防错 #10）。
+4. **导出 PGN 的语料投影**：语料无 result/solveStatus 面——Result 恒 `*`；mode 投影 endgame/humanVsHuman；SetFen/FEN 按初始局面是否标准判定（pgnWriter 语义不变）。
+5. **进入对战起点**（recordBattle 语义语料等价）：残局题=initialFen；全局对局=终局局面（重放 moves）；上游"已分胜负不提供入口"分支不适用于语料。humanVsAi 续战默认玩家执红（FEN 决定行棋方）。
+6. **目录选择按钮未实现**（T5'.4 待定案）：下载引导页以提示行替代（"手动将语料目录放置到期望路径后重新进入本页"）；导出 PGN 文件（保存对话框）同待定案，剪贴板导出先行。
+7. 语义偏离 1~7 中涉及行为变更的文档面已同步（00 §4/08 §8，同 commit 或文档先行）。
+
+### M5' 验证门结果
+
+- 语料下载/解析手测：**待用户执行**（真实 45MB 包下载/取消/半成品保留，见手测清单）；
+- 长列表性能：✅（FPS 76~87 / avg 3.2~5.7ms / max ≤6.5ms，最坏口径实测）；
+- 导出快照与上游一致：✅（逐字符，2 快照）；
+- 质量门：`gofmt -l` 空输出 + `go vet ./...` 0 问题 + `go test ./... -race` 全量通过；`go run .` 冒烟通过。
+
+## 请手测清单（M5'）
+
+> 准备：`export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig"`（建议写入 ~/.bashrc）；
+> 真实语料包约 45MB（GitHub Release，下载器仅允许 https 公网地址——SSRF 白名单为复制物语义）；
+> 中文搜索词输入走搜索框旁"粘贴"按钮（KG-004 口径，先在 Windows 侧复制）。
+
+1. **语料缺失引导与下载（T5'.1，核心验收）**：确认 `~/Documents/ChineseChessUltra/corpus` 不存在（或改名）→ 主页进"棋谱库"：
+   - 显示"未找到本地棋谱语料"+ 期望路径 + "下载语料包（约 45MB）"按钮；
+   - 点下载 → 按钮变"取消下载"，出现"下载中 X.XMB / Y.YMB"与进度条（GitHub 带宽决定速度）；
+   - **中途点"取消下载"** → 停止（终端无 panic）；**再次点下载 → 应续传**（进度从残留半成品附近继续——ETag sidecar 语义；若 GitHub ETag 变化则整体重下，亦属正确行为）；
+   - 下载完成 → 自动重扫进入分类视图（"下载完成，正在重新扫描语料目录…"）。
+2. **分类与 XQF 浏览（T5'.1）**：左侧分类列表（XQF-象棋谱大全 / ChessQ-gamebooks / PGN 大文件若干）→ 选 XQF 分类：
+   - 解析进度行（"解析进度 N% 已解析 x/y"）渐进推进，收尾消失；
+   - 行卡显示 标题/来源·着数·难度·残局题|全局对局；搜索框过滤、仅看残局、难度/排序 chips 均即时生效；
+   - 中文搜索：先在 Windows 复制棋谱名片段 → 点搜索框旁"粘贴"按钮 → 列表过滤。
+3. **PGN 大文件浏览（T5'.2）**：选 PGN 分类（CGLemon-PGN 下 .pgns）→ "索引扫描中…" → "共 N 局"（大文件应 14 万级）：
+   - 长列表自然滚动流畅（两行行卡）；滚回顶部：点搜索框输入"1"再清空（跳转语义）或滚动手势；
+   - 数字/ASCII 搜索（如 "红1"）→ 计数与列表即时收敛；
+   - 行点击 → 进入该局重放器（"单局解析中…"一闪后进详情）。
+4. **重放器（T5'.3）**：
+   - 静态棋盘 + 标题行元信息（来源·着数·难度·残局题/全局对局）正确；
+   - "▶ 播放" → 每 0.8s 推进一着（按钮变"暂停"，走法列表亮显随 pos 推进），播完显示"演示完毕"；
+   - 暂停/继续（从当前着续播）、停止（回开局）、⇤◀▶⇥ 步进边界；走法列表任意半着点击跳转；
+   - 残局题与全局对局各试一局。
+5. **导出 PGN（T5'.3）**：详情页点"导出 PGN（复制）" → 提示"PGN 已复制到剪贴板"；在 WSL 内 `xclip -o -selection clipboard`（或粘到任意编辑器）核对：七标签 + ICCS 着法 + 残局带 SetFen/FEN、结果 `*`。
+6. **进入对战（T5'.3）**：详情页点"进入对战" → 四选项弹层（人机 AI/双人/人机 LLM/LLM vs LLM）：
+   - 选"双人对弈" → 对局页以起点局面开局：残局题=初始局面、全局对局=终局局面（走法列表为空、步数 0）；
+   - **起点局面保存按钮不应写档**：下两步 → 返回主页 → 重新进入该模式对局页 → 不应恢复出刚才的续战对局（canSave=false，防错 #6）；
+   - 选"人机对战（内置 AI）" → 同一起点开局且 AI 正常应手。
+7. **离页取消（T5'.1，#G5）**：解析大批量分类中途返回主页 → 立即再进棋谱库 → 无崩溃、无旧分类内容闪现（迟到回执按代次丢弃）；下载中途返回主页 → 下载取消（半成品保留）。
+8. **性能实测复核（可选，T5'.2）**：`CC_GIO_SYNTH_PGN=140000 CC_GIO_SYNTH_SCROLL=1 go run ./cmd/poc corpus` → 点左侧"合成 14 万局"分类 → 右上浮层 FPS/帧开销（参考值 FPS 76~87 / avg ≤6ms）+ 终端每秒 perf 日志。
+9. **回归（自动）**：`go test ./... -race -count=1` 全绿（新增：corpusbrowser 15 + pgnwriter 10 + replayview 8 + battle 页 1）。
+10. **T5'.4 决策项**：随本轮验收一并定案（决策矩阵见会话输出），定案后实现"选择其他棋谱目录"与"导出 PGN 文件"。
 
 ## M4' 完成清单（逐任务 commit）
 
