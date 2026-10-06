@@ -74,6 +74,25 @@
 
 回归：gofmt/vet/`go test ./... -race -count=1` 全绿（commit fix(m4')）。
 
+### 验收反馈修复轮第 2 轮（2026-10-06，§6.2）
+
+用户复测反馈：测试连接已成功，但**下棋仍报同款 404**；字号仍偏小。
+
+1. **【根因补全·修复】走子管线路径的脏配置未清洗**：用户存储中的配置已带
+   NUL（首轮修复前保存），首轮只在配置卡边界清洗——测试连接用表单清洗值
+   （成功），走子管线用页面持有的存储原始值（`p.config`，仍带 NUL）→ 404。
+   实证：读取用户存档 `credentials.enc`，model = `"qwen3.8-max` + 4 个 NUL 字节`
+   （无冒号——报错里的冒号是百炼错误模板自己的回显格式）。
+   **修复**：清洗上移到存储读写边界——`state.SanitizeTextField`（纯 Go，双端
+   共用）+ app 凭据代理 LoadSlotAsync/slotToLlm（回读清洗）与 SaveSlotAsync
+   （落盘清洗）双入口；**用户无需重填配置，重启即净**。用例：脏存盘 roundtrip
+   （load 出 model 干净 + Key 掩码）锚定。
+2. **【修复】字号第二轮加大**：标题 16sp/选择行与字段标签 15sp/输入框 15sp/
+   chips 14sp/消息区与提示 14sp（消息区 150dp）；侧板 380→400dp。截图
+   ~/poc_evidence/m4/humanvsllm_fontfix2.png（面板裁剪对照）。
+
+回归：gofmt/vet/`go test ./... -race -count=1` 全绿。
+
 ## M4' 手测清单（用户执行；真实端点一整局为验收门）
 
 ### 准备：端点配置（GLM / DeepSeek 任选其一，或都用）
