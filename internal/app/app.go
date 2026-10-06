@@ -178,6 +178,15 @@ func (w *Window) gameEnv() ui.GameEnv {
 	}
 }
 
+// llmEnv 构造 LLM 页环境（T4'.2：凭据槽位/设置异步代理 + 完整 Key 注入面）。
+func (w *Window) llmEnv() ui.LlmEnv {
+	return ui.LlmEnv{
+		GameEnv:  w.gameEnv(),
+		Store:    newLlmStore(w.store, w.emitFunc()),
+		Settings: w.store.Settings(),
+	}
+}
+
 // Run 组装主页 + 7 入口路由并进入事件循环（main.go 调用）。
 func Run(cfg Config) error {
 	w := OpenWindow(WindowConfig{
@@ -226,8 +235,29 @@ func Run(cfg Config) error {
 			},
 		})
 	})
-	// 其余 5 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsLlm, RouteLlmVsLlm, RouteStudio, RouteCorpus} {
+	// 人机 LLM 页（T4'.3）：工厂页 + LLM 流式客户端直调（05 附录消费方式注记：
+	// chunk/done/error 经事件总线按 requestId 分发；凭据槽位经 llmStore 异步代理）。
+	w.Router().RegisterFactory(RouteHumanVsLlm, func() ui.Page {
+		return ui.NewHumanVsLlmPage(w.llmEnv(), ui.HumanVsLlmHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		})
+	})
+	// LLM vs LLM 页（T4'.3）：工厂页，双槽位配置 + 循环状态机。
+	w.Router().RegisterFactory(RouteLlmVsLlm, func() ui.Page {
+		return ui.NewLlmVsLlmPage(w.llmEnv(), ui.LlmVsLlmHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		})
+	})
+	// 其余 3 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteEndgameSelect, RouteStudio, RouteCorpus} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),
