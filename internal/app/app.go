@@ -142,6 +142,15 @@ func (w *Window) Run(page ui.Page) error {
 		case key.FocusEvent:
 			DispatchFocusChanged(w.lifecycle, e.Focus)
 		case app.FrameEvent:
+			// 全局界面缩放（08 §9，Gio 版新增）：设置乘数叠加系统检测值
+			//（X11 侧 gio 读 Xft.dpi，缺省 96dpi=1.0）。逐帧读取——设置弹窗
+			// 调整即刻生效；仅影响 dp/sp 换算，指针命中两侧同为像素坐标不受影响。
+			if w.settings != nil && w.settings.UIScale > 1.0 {
+				e.Metric = unit.Metric{
+					PxPerDp: e.Metric.PxPerDp * float32(w.settings.UIScale),
+					PxPerSp: e.Metric.PxPerSp * float32(w.settings.UIScale),
+				}
+			}
 			gtx := app.NewContext(&ops, e)
 			cur := currentPage()
 			for _, ev := range w.bus.Drain() {
@@ -209,9 +218,7 @@ func Run(cfg Config) error {
 				log.Println("app: 导航失败:", err)
 			}
 		},
-		OnOpenSettings: func() {
-			log.Println("app: 全局设置入口（M2' 设置弹窗落地）")
-		},
+		Settings: w.settings,
 	}))
 	// 双人对弈页（T2'.4）：工厂页——每次导航进入创建新对局（铁律 #G4 每局一实例），
 	// 离开 Dispose 触发离开保存（07 §2）。

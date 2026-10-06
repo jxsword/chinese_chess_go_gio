@@ -130,7 +130,9 @@ func (c *choiceRow) draw(gtx layout.Context, title string, current int, titleWid
 			return layoutOptionChips(gtx, 44, chipOpt{&c.clicks[i], c.labels[i], selected})
 		}))
 	}
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+	return layout.Inset{Top: unit.Dp(5), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+	})
 }
 
 // ---- 状态后缀 ----

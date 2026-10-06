@@ -189,17 +189,28 @@ type chipOpt struct {
 	selected bool
 }
 
-// layoutOptionChips 一行选项 chips（人机页/LLM 配置卡共用；width=单 chip 最小宽 dp，
-// 需经 Clickable.Layout 注册指针区——M3' 验收修复口径）。
-func layoutOptionChips(gtx layout.Context, width int, opts ...chipOpt) layout.Dimensions {
+// layoutOptionChips 一行选项 chips（人机页/LLM 配置卡共用；minWidth=单 chip
+// 最小宽 dp，实际宽度按标签内容自适应——定宽在 15sp 下装不下长标签会换行
+// 裁切（"内置AI代走"/"快(2层)"，M4' 验收反馈第 4 轮实证），测量遍丢弃 ops
+// （macro）后按测量值定宽。需经 Clickable.Layout 注册指针区——M3' 修复口径。
+func layoutOptionChips(gtx layout.Context, minWidth int, opts ...chipOpt) layout.Dimensions {
 	children := make([]layout.FlexChild, 0, len(opts))
 	for _, o := range opts {
 		o := o
-		w := gtx.Dp(unit.Dp(width))
-		if w < gtx.Dp(unit.Dp(42)) {
-			w = gtx.Dp(unit.Dp(42))
-		}
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 测量遍：无约束排标签，丢弃绘制的 ops，只取尺寸。
+			macro := op.Record(gtx.Ops)
+			mctx := gtx
+			mctx.Constraints = layout.Constraints{Max: image.Point{X: 1e6, Y: 1e6}}
+			lbl := material.Body2(PageTheme, o.label)
+			lbl.TextSize = unit.Sp(15)
+			tdims := lbl.Layout(mctx)
+			macro.Stop()
+
+			w := max(gtx.Dp(unit.Dp(minWidth)), tdims.Size.X+gtx.Dp(unit.Dp(24)))
+			if w < gtx.Dp(unit.Dp(42)) {
+				w = gtx.Dp(unit.Dp(42))
+			}
 			bg := ThemeSurface
 			fg := ThemeSeedDark
 			if o.selected {

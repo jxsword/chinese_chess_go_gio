@@ -7,10 +7,20 @@ package state
 
 import "github.com/jxsword/chinese_chess_go_gio/internal/storage"
 
+// SettingKeyGlobalUIScale 全局界面缩放键（Gio 版新增，08 §9；复制物
+// storage 常量不动——#G2）。值为相对系统缩放的乘数（1.0=跟随系统）。
+const SettingKeyGlobalUIScale = "global_ui_scale"
+
+// UIScaleOptions 设置弹窗的缩放档位（相对系统检测值）。
+var UIScaleOptions = []float64{1.0, 1.25, 1.5, 1.75, 2.0}
+
 // GlobalSettings 全局设置（上游 useGlobalSettings Zustand 单件的 Go 形态）。
 type GlobalSettings struct {
 	// AutoSave 离开棋盘/应用切后台时自动保存当前棋局。默认开启（07 §3）。
 	AutoSave bool
+	// UIScale 界面缩放乘数（1.0=跟随系统检测值；0.10~3.0 clamp）。
+	// Gio 版新增（08 §9）：高分屏 Xft.dpi 缺失/仍偏小的场景由用户自调。
+	UIScale float64
 	// Loaded 是否完成首次加载（设置弹窗每次打开前重新 load，08 §6）。
 	Loaded bool
 
@@ -19,7 +29,7 @@ type GlobalSettings struct {
 
 // NewGlobalSettings 创建全局设置（st 为存储实例；可为 nil——存储降级路径）。
 func NewGlobalSettings(st *storage.Settings) *GlobalSettings {
-	return &GlobalSettings{AutoSave: true, st: st}
+	return &GlobalSettings{AutoSave: true, UIScale: 1.0, st: st}
 }
 
 // Load 读取持久化值（global_settings.dart:22-27：读失败/缺省按默认值开启）。
@@ -31,7 +41,27 @@ func (g *GlobalSettings) Load() {
 		}
 	}
 	g.AutoSave = value
+	if g.st != nil {
+		if f, ok := g.st.Get(SettingKeyGlobalUIScale).(float64); ok && f >= 1.0 && f <= 3.0 {
+			g.UIScale = f
+		}
+	}
 	g.Loaded = true
+}
+
+// SetUIScale 先改内存再落盘（同 SetAutoSave 语义；clamp 1.0~3.0）。
+func (g *GlobalSettings) SetUIScale(value float64) {
+	if value < 1.0 {
+		value = 1.0
+	}
+	if value > 3.0 {
+		value = 3.0
+	}
+	g.UIScale = value
+	if g.st == nil {
+		return
+	}
+	_ = g.st.Set(SettingKeyGlobalUIScale, value)
 }
 
 // SetAutoSave 先改内存再落盘（global_settings.dart:30-35：写失败保留内存值，

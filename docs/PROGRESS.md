@@ -112,6 +112,29 @@
 回归：gofmt/vet/`go test ./... -race -count=1` 全绿；截图
 ~/poc_evidence/m4/humanvsllm_fontfix3.png。
 
+### 验收反馈修复轮第 4 轮（2026-10-06，§6.2）
+
+用户复测反馈：面板变宽了但"字体完全没变化"；chips 文本换行裁切（"内置AI
+代走"/"快(2层)"被切半）。
+
+1. **【根因定位】显示缩放不足**：用户环境 2560×1600 + Xft.dpi=144（gio 已按
+   1.5x 渲染），16sp≈24px 物理像素在该屏上仍偏小——sp 数值微调不可感知，
+   需要全局缩放手段。
+   **【修复】界面缩放设置（08 §9 Gio 版新增，文档先行）**：主页"全局设置"
+   弹窗（补齐 M2' 预留项）= autoSave 开关 + 缩放档位 chips（100%~200%，键
+   `global_ui_scale` 持久化）；app 装配层 FrameEvent 按乘数缩放 `unit.Metric`
+   （dp/sp 全局换算，指针命中不受影响），**调整即刻生效**。缩放机制端到端
+   验证（弹窗点击 150% → 全局变大 + settings.json 落盘 1.5 + 重读生效，
+   截图 settings_modal.png/settings_150.png/llm_150.png）。
+2. **【修复】chips 定宽换行裁切**（三轮字号问题下被掩盖的真布局缺陷）：
+   layoutOptionChips 改为按标签内容自适应宽度（无约束测量遍丢弃 ops 后
+   定宽），"内置AI代走"/"快(2层)"等长标签不再换行截断；行距放宽
+   （choiceRow 上下 inset）。
+3. 用例：UIScale 默认/持久化/回读（state）。
+
+回归：GOMAXPROCS=2 go test ./... -race -count=1 全绿（首跑 TestProxyTotalLimit
+为 KG-007 已登记单核饥饿偶发，复跑通过）。
+
 ## M4' 手测清单（用户执行；真实端点一整局为验收门）
 
 ### 准备：端点配置（GLM / DeepSeek 任选其一，或都用）
