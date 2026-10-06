@@ -400,12 +400,18 @@ func (p *HumanVsAiPage) onPlayerMoved() {
 // ---- 交互 ----
 
 func (p *HumanVsAiPage) handleEvents(gtx layout.Context) {
-	// 弹窗打开：遮罩拦截页面级交互（仅消费本帧点击边沿，防穿透）
+	// 弹窗打开：遮罩拦截页面级交互（仅消费本帧点击边沿，防穿透——含侧板
+	// chips：执方切换/难度变更不得在弹窗下生效，KG-008 同类面收口）
 	if p.modalOpen() {
 		p.backBtn.Clicked(gtx)
 		p.newGameBtn.Clicked(gtx)
 		p.undoBtn.Clicked(gtx)
 		p.saveBtn.Clicked(gtx)
+		p.sideRedBtn.Clicked(gtx)
+		p.sideBlackBtn.Clicked(gtx)
+		for i := range p.diffBtns {
+			p.diffBtns[i].Clicked(gtx)
+		}
 		return
 	}
 	if p.backBtn.Clicked(gtx) && p.hooks.OnBack != nil {
@@ -578,8 +584,9 @@ func (p *HumanVsAiPage) layoutStatusBar(gtx layout.Context) layout.Dimensions {
 		bg = ThemeSeed
 		fg = ThemeSurface
 	case snap.IsCheck:
+		// 被将军方=轮走方（上游 checkedSide = isRedTurn ? '红' : '黑'）
 		checkedSide := "红"
-		if snap.IsRedTurn {
+		if !snap.IsRedTurn {
 			checkedSide = "黑"
 		}
 		statusText = fmt.Sprintf("等待玩家（%s方）走棋（%s方被将军！）", sideName(p.playerSide), checkedSide)
