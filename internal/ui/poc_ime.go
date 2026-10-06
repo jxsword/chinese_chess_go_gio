@@ -247,7 +247,7 @@ func (p *PocIme) layoutEditor(gtx layout.Context) layout.Dimensions {
 			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				paint.FillShape(gtx.Ops, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, clip.Rect{Max: gtx.Constraints.Max}.Op())
-				pocStrokeRect(gtx.Ops, 0, 0, float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y),
+				strokeRect(gtx.Ops, 0, 0, float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y),
 					float32(gtx.Dp(1)), ThemeBoardLine)
 				return layout.Dimensions{Size: gtx.Constraints.Max}
 			}),

@@ -18,22 +18,22 @@ func almostEq(a, b float32) bool {
 }
 
 // spec: boardLayout.ts computeBoardLayout——cell 取两方向约束的较小者。
-func TestPocComputeBoardLayoutCellBranches(t *testing.T) {
+func TestComputeBoardLayoutCellBranches(t *testing.T) {
 	// 宽受限：960×1920 → cell=960/9.6=100
-	l := PocComputeBoardLayout(960, 1920)
+	l := ComputeBoardLayout(960, 1920)
 	if !almostEq(l.Cell, 100) {
 		t.Fatalf("width-bound cell=%v want 100", l.Cell)
 	}
 	// 高受限：1920×960 → cell=960/10.6≈90.566
-	l = PocComputeBoardLayout(1920, 960)
+	l = ComputeBoardLayout(1920, 960)
 	if !almostEq(l.Cell, 960/10.6) {
 		t.Fatalf("height-bound cell=%v want %v", l.Cell, 960/10.6)
 	}
 }
 
 // spec: computeBoardLayout——origin 居中、pieceRadius=cell*0.86/2、borderMargin=cell*0.5。
-func TestPocComputeBoardLayoutDerived(t *testing.T) {
-	l := PocComputeBoardLayout(960, 1060) // cell=100 → 板 800×900，余量 160/160
+func TestComputeBoardLayoutDerived(t *testing.T) {
+	l := ComputeBoardLayout(960, 1060) // cell=100 → 板 800×900，余量 160/160
 	if !almostEq(l.OriginX, 80) || !almostEq(l.OriginY, 80) {
 		t.Fatalf("origin=(%v,%v) want (80,80)", l.OriginX, l.OriginY)
 	}
@@ -46,21 +46,21 @@ func TestPocComputeBoardLayoutDerived(t *testing.T) {
 }
 
 // spec: offsetOf——交点坐标 = origin + col/row×cell。
-func TestPocOffsetOf(t *testing.T) {
-	l := PocComputeBoardLayout(960, 1060)
-	x, y := PocOffsetOf(l, 4, 5)
+func TestOffsetOf(t *testing.T) {
+	l := ComputeBoardLayout(960, 1060)
+	x, y := OffsetOf(l, 4, 5)
 	if !almostEq(x, 480) || !almostEq(y, 580) {
 		t.Fatalf("offsetOf(4,5)=(%v,%v) want (480,580)", x, y)
 	}
-	x, y = PocOffsetOf(l, 8, 9)
+	x, y = OffsetOf(l, 8, 9)
 	if !almostEq(x, 880) || !almostEq(y, 980) {
 		t.Fatalf("offsetOf(8,9)=(%v,%v) want (880,980)", x, y)
 	}
 }
 
 // spec: hitTest（board_widget.ts:47-49）——四舍五入取最近交点；越界 false。
-func TestPocHitTest(t *testing.T) {
-	l := PocComputeBoardLayout(960, 1060) // origin≈(80,80), cell≈100
+func TestHitTest(t *testing.T) {
+	l := ComputeBoardLayout(960, 1060) // origin≈(80,80), cell≈100
 	cases := []struct {
 		x, y     float32
 		col, row int
@@ -74,7 +74,7 @@ func TestPocHitTest(t *testing.T) {
 		{880, 1035, 8, 9, false}, // row 反算 9.55→10 越界
 	}
 	for _, c := range cases {
-		col, row, ok := PocHitTest(l, c.x, c.y)
+		col, row, ok := HitTest(l, c.x, c.y)
 		if ok != c.ok || (ok && (col != c.col || row != c.row)) {
 			t.Fatalf("hitTest(%v,%v)=(%v,%v,%v) want (%v,%v,%v)",
 				c.x, c.y, col, row, ok, c.col, c.row, c.ok)
@@ -83,7 +83,7 @@ func TestPocHitTest(t *testing.T) {
 }
 
 // round 边界：Go math.Round 半值远离零，与 Electron Math.round 同向。
-func TestPocHitTestRounding(t *testing.T) {
+func TestHitTestRounding(t *testing.T) {
 	if got := int(math.Round(0.5)); got != 1 {
 		t.Fatalf("round(0.5)=%d want 1", got)
 	}

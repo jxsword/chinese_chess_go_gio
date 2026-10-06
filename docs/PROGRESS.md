@@ -11,7 +11,7 @@
 | 设计文档阶段（含领域层复制） | ✅ | 本文件首条记录 |
 | **M0' 工程骨架 + UI POC 排险** | ✅ 验收通过（tag v0.1.0-m0'） | T0'.1~T0'.7 完成；POC 五项结论回填 08 §12/DR-G003；两轮验收修复（KG-003~007） |
 | **M1' 状态层核心 + 主页** | ✅ 验收通过 | T1'.1~T1'.3 完成；DR-G002 翻译用例全绿；验收反馈两项修复（居中/D-002 标题绕过）复验通过 |
-| **M2' 双人对战 + 存储** | 🔄 进行中 | T2'.1 ✅ / T2'.2 ✅ / T2'.3 ⬜ / T2'.4 ⬜ |
+| **M2' 双人对战 + 存储** | 🔄 进行中 | T2'.1 ✅ / T2'.2 ✅ / T2'.3 ✅ / T2'.4 ⬜ |
 | M3'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
 
 ## M2' 完成清单（逐任务 commit）
@@ -20,6 +20,7 @@
 |---|---|---|
 | T2'.1 | `internal/app/datastore.go`：数据目录=os.UserConfigDir()/chinese-chess-ultra-gio、库文件 chinese_chess_ultra_gio.sqlite（07 §1，与上游应用不互写）、**DAO 懒打开**（失败记忆错误→"本地存储不可用"降级）+ settings.json/凭据回退路径装配（07 §4/§5；凭据槽 M4' 配置卡接入）+ 全局设置单例加载接线（铁律 #G4 例外面）。复制物 internal/storage 零改动 | datastore_test 3 用例（roundtrip/降级/错误记忆）全绿；DAO/凭据复制物回归全绿 |
 | T2'.2 | `state/autosave.go`（gameAutoSave.ts 翻译：SaveOnExit 开关门控/SaveManual 不受开关/Dispose 先存后注销/CanSave 防错 #6）+ `state/restore.go`（gameRestore.ts 翻译：Restored/死局删档开新局/FEN 无效/存储异常/无存档五路径；同步形态+异步拆分形态）+ `state/lifecycle.go`（lifecycleRegistry.ts 翻译：LifecycleBus 订阅/广播/注销）+ app 侧 `repo.go`（repo 异步代理：自动保存 fire-and-forget、手动保存回执、关闭同步写=K16 有界等待）+ `ui/events.go`/`ui/env.go`（00 §4 内部事件行：db:save/db:load/timer:tick/toast:hide）+ autosaveBridge（blur/minimize→总线、close→页面同步保存）；00 §4/07 §2 文档先行 | autoSaveRestore.spec.ts 9 用例逐条翻译全绿 + 拆分形态 1 + repo 2 + 桥接 1，`-race` 全绿 |
+| T2'.3 | **BoardView 正式版**（`ui/boardview.go`）：cell=min(w/9.6,h/10.6) 布局/命中换算/选中与合法目标高亮（08 §3）+ 220ms 两阶段飞行动画帧时间戳权威结束（08 §4，防错 #1/#2/#4）+ OnMoved 历史增长守卫（M3' AI 挂接点）+ CancelAnim（悔棋/新局/离页作废）。POC 绘制库上收为共享 `boardart.go`/`boardlayout.go`/`draw.go`（绘制公式经 POC-1 Electron 对照验证，POC demo 同源引用不删）；坐标口径定案**纵线号**（docs/decision_log.md D-003，08 §12 回填同步） | boardlayout 几何/命中 5 用例 + easeOutCubic/animProgress 权威结束/CancelAnim 作废 3 新用例全绿；防错 #1/#2/#6 手测列入清单 |
 
 ## M1' 完成清单（T1'.1~T1'.3，逐任务 commit）
 

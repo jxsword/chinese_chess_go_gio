@@ -93,7 +93,7 @@ func (p *PocBoard) layoutToolbar(gtx layout.Context) layout.Dimensions {
 }
 
 func (p *PocBoard) layoutBoard(gtx layout.Context) layout.Dimensions {
-	l := PocComputeBoardLayout(float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y))
+	l := ComputeBoardLayout(float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y))
 	p.runDemo(gtx)
 
 	// 指针区域 = 整个棋盘组件；点击位置反算交点（08 §3.1 命中换算）。
@@ -110,22 +110,26 @@ func (p *PocBoard) layoutBoard(gtx layout.Context) layout.Dimensions {
 	}
 
 	// 绘制次序 = Electron BoardView：底色/线路(boardArt) → 高亮层 → 棋子层。
-	state := PocBoardState{
+	targets := make([]rules.Position, 0, len(p.targets))
+	for _, m := range p.targets {
+		targets = append(targets, m.To)
+	}
+	state := BoardState{
 		Grid:         p.grid,
 		LastMove:     p.lastMove,
 		Selected:     p.selected,
-		LegalTargets: p.targets,
+		LegalTargets: targets,
 		CheckKingPos: p.checkPos,
 	}
-	PocDrawBoardArt(gtx, l, p.coord08)
-	PocDrawHighlights(gtx, l, &state)
-	PocDrawPieces(gtx, l, state.Grid, nil)
+	DrawBoardArt(gtx, l, p.coord08)
+	DrawHighlights(gtx, l, &state)
+	DrawPieces(gtx, l, state.Grid, nil)
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
 // onBoardClick 最小交互：选中→目标落子（动画属 POC-2）。
-func (p *PocBoard) onBoardClick(l PocBoardLayout, x, y float32) {
-	col, row, ok := PocHitTest(l, x, y)
+func (p *PocBoard) onBoardClick(l BoardLayout, x, y float32) {
+	col, row, ok := HitTest(l, x, y)
 	if !ok {
 		p.clearSelection()
 		return

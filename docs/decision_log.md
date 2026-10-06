@@ -30,3 +30,28 @@
 - 理由：缺陷面仅存在于 WSLg（/mnt/wslg 标记目录 + /proc/version 含 microsoft 兜底，误报无害——仅影响标题语言）；绕过不触及 gio 复制物与协议面，检测函数注入式单测覆盖四分支。弃 A 因用户日常开发环境即 WSLg，观感问题持续存在；弃 C 因不必要地牺牲原生环境体验。
 - 影响：internal/app/{wslg.go,wslg_test.go,app.go Run 标题行}；KNOWN_ISSUES KG-005 处置栏更新；
   实测 `_NET_WM_NAME` = "Chinese Chess Ultra (Gio)"（WSLg 内）。
+
+## D-003 BoardView 坐标口径定案（2026-10-06）
+
+- 背景：08 §3.2 #4 规定棋盘坐标为"纵线号"（黑方顶部数字 1~9 左→右、红方底部汉字
+  一~九 右→左，"沿上游记谱口径"），但 Electron 版 boardArt.tsx 锚点实际绘制 ICCS
+  （a-i/0-9 双侧）。M0' POC-1 双口径都实现（POC_COORD=cn 切换），08 §12 回填注明
+  "M2' BoardView 定案取哪一种"。本任务（T2'.3）必须定案。
+- 选项：
+  - A. 纵线号（08 §3.2 #4 字面口径）——优点：与中文记谱（ChineseNotation 的"炮二平五"）
+    直观对应，符合中文用户读盘习惯，08 §3.2 是本仓 UI 事实源；缺点：与 Electron 版
+    视觉锚点不一致，对照截图存在口径差；代价：POC 对照记录需注明差异已定案。
+  - B. ICCS（Electron boardArt 锚点）——优点：与上游/Electron 视觉逐元素一致，
+    M0' 对照截图直接复用；缺点：与 08 §3.2 字面冲突，需修订 08 文档（文档先行成本）；
+    代价：08 §3.2 #4 语义作废、中文记谱对不上坐标。
+  - C. 双口径运行时切换（POC 形态）——优点：两种用户都满足；缺点：正式产品引入
+    无上游依据的配置项（上游无此开关，违"禁止凭直觉发明行为"）；代价：多余配置面。
+- 结论：**A（纵线号口径）**。
+- 理由：design_docs 是 Gio 版 UI 规格事实源（AGENTS.md 项目定位；README 归属裁决：
+  本仓设计文档为架构与工程事实源），08 §3.2 #4 明确写下纵线号并注"沿上游记谱口径"；
+  Electron 锚点与 08 的冲突属于上游规格与实现的既有偏差，Gio 版按规格执行。
+  记谱联动（走法记录用 ChineseNotation 中文记法）与纵线号同语系，一致性更好。
+  弃 B 因需反向修订已定稿规格且损伤中文读盘体验；弃 C 因上游无对应行为依据。
+- 影响：internal/ui/boardview.go（DrawBoardArt showFileNumbers=true）；
+  08 §12 POC-1 回填行的"M2' 定案"悬置项落定；ICCS 绘制路径保留（boardart.go 双口径），
+  仅 POC demo 继续使用。

@@ -15,6 +15,7 @@ import (
 	"image/color"
 	"os"
 
+	"gioui.org/font"
 	"gioui.org/font/gofont"
 	"gioui.org/font/opentype"
 	"gioui.org/text"
@@ -96,3 +97,10 @@ var PageTheme = func() *material.Theme {
 	th.Shaper = text.NewShaper(text.WithCollection(fontCollection()))
 	return th
 }()
+
+// fontSerifBold 棋子字面（bold 衬线，模拟 Electron cc-piece-text 的 KaiTi+bold；
+// Linux 无 KaiTi，取 FontFaceSerifSC 为最接近锚点——08 §1 POC-3 回填）。
+var fontSerifBold = font.Font{Typeface: FontFaceSerifSC, Weight: font.Bold}
+
+// fontMedium 河界/坐标文字面（Electron cc-river-text：weight 500=Medium，默认族）。
+var fontMedium = font.Font{Weight: font.Medium}

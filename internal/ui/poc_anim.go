@@ -22,31 +22,6 @@ import (
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
 )
 
-// pocAnimDuration 动画标准时长（08 §4：220ms；上游"220ms 定时器权威"语义）。
-const pocAnimDuration = 220 * time.Millisecond
-
-// pocEaseOutCubic 缓动（08 §4：easeOutCubic）。
-func pocEaseOutCubic(t float32) float32 {
-	if t >= 1 {
-		return 1
-	}
-	if t < 0 {
-		t = 0
-	}
-	u := 1 - t
-	return 1 - u*u*u
-}
-
-// pocAnimProgress 帧时间戳权威判定：t=(now-start)/dur；t≥1 即权威结束
-// （等价上游"220ms 定时器权威、transitionend 不可靠"语义，08 §4）。
-func pocAnimProgress(start, now time.Time, dur time.Duration) (t float32, done bool) {
-	el := now.Sub(start)
-	if el >= dur {
-		return 1, true
-	}
-	return float32(el) / float32(dur), false
-}
-
 // PocAnim POC-2 页面状态（主 goroutine 独占，铁律 #G3）。
 type PocAnim struct {
 	board *rules.Board
@@ -87,7 +62,7 @@ func NewPocAnim() *PocAnim {
 	p := &PocAnim{
 		board:    rules.Initial(),
 		grid:     grid,
-		duration: pocAnimDuration,
+		duration: moveAnimDuration,
 		scenarios: []rules.Move{
 			{From: rules.Pos(7, 7), To: rules.Pos(4, 7)}, // 红：炮二平五（空位落点）
 			{From: rules.Pos(7, 0), To: rules.Pos(6, 2)}, // 黑：马8进7（空位落点）
@@ -114,7 +89,7 @@ func (p *PocAnim) layoutToolbar(gtx layout.Context) layout.Dimensions {
 	for i, b := range []*widget.Clickable{&p.normBtn, &p.slowBtn} {
 		if b.Clicked(gtx) {
 			if i == 0 {
-				p.duration = pocAnimDuration
+				p.duration = moveAnimDuration
 			} else {
 				p.duration = time.Second
 			}
@@ -179,7 +154,7 @@ func itoa(n int) string {
 }
 
 func (p *PocAnim) layoutBoard(gtx layout.Context) layout.Dimensions {
-	l := PocComputeBoardLayout(float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y))
+	l := ComputeBoardLayout(float32(gtx.Constraints.Max.X), float32(gtx.Constraints.Max.Y))
 
 	// FPS 统计（每帧 +1，1s 窗口）。
 	p.frames++
@@ -217,23 +192,23 @@ func (p *PocAnim) layoutBoard(gtx layout.Context) layout.Dimensions {
 	if !p.anim.active && p.nextIdx > 0 {
 		lastMove = &p.scenarios[(p.nextIdx-1+len(p.scenarios))%len(p.scenarios)]
 	}
-	PocDrawBoardArt(gtx, l, false)
-	PocDrawHighlights(gtx, l, &PocBoardState{Grid: p.grid, LastMove: lastMove})
-	PocDrawPieces(gtx, l, p.grid, skipFrom)
+	DrawBoardArt(gtx, l, false)
+	DrawHighlights(gtx, l, &BoardState{Grid: p.grid, LastMove: lastMove})
+	DrawPieces(gtx, l, p.grid, skipFrom)
 	if p.anim.active {
-		t, _ := pocAnimProgress(p.anim.start, gtx.Now, p.duration)
-		e := pocEaseOutCubic(t)
-		x1, y1 := PocOffsetOf(l, p.anim.move.From.Col, p.anim.move.From.Row)
-		x2, y2 := PocOffsetOf(l, p.anim.move.To.Col, p.anim.move.To.Row)
+		t, _ := animProgress(p.anim.start, gtx.Now, p.duration)
+		e := easeOutCubic(t)
+		x1, y1 := OffsetOf(l, p.anim.move.From.Col, p.anim.move.From.Row)
+		x2, y2 := OffsetOf(l, p.anim.move.To.Col, p.anim.move.To.Row)
 		piece := p.board.PieceAtP(p.anim.move.From)
 		if piece != nil {
-			PocDrawPiece(gtx, l, piece,
+			DrawPiece(gtx, l, piece,
 				x1+(x2-x1)*e, y1+(y2-y1)*e)
 		}
 		// 阶段二语义可视化：飞行中被吃子保持可见（到达 t≥1 才消失）。
 		if p.anim.captured != nil {
-			cx, cy := PocOffsetOf(l, p.anim.move.To.Col, p.anim.move.To.Row)
-			PocDrawPiece(gtx, l, p.anim.captured, cx, cy)
+			cx, cy := OffsetOf(l, p.anim.move.To.Col, p.anim.move.To.Row)
+			DrawPiece(gtx, l, p.anim.captured, cx, cy)
 		}
 	}
 
@@ -258,7 +233,7 @@ func (p *PocAnim) runAnim(gtx layout.Context) {
 		p.startScenario(now)
 		return
 	}
-	_, done := pocAnimProgress(p.anim.start, now, p.duration)
+	_, done := animProgress(p.anim.start, now, p.duration)
 	if !done {
 		return // t<1：下一帧继续（本帧已请求排帧）
 	}

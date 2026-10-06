@@ -6,7 +6,6 @@ package ui
 import (
 	"os"
 
-	"gioui.org/font"
 	"gioui.org/font/gofont"
 	"gioui.org/font/opentype"
 	"gioui.org/text"
@@ -48,9 +47,3 @@ var pocTheme = func() *material.Theme {
 	th.Shaper = text.NewShaper(text.WithCollection(pocFontCollection()))
 	return th
 }()
-
-// pocFontSerifBold 棋子字（bold 衬线，模拟 Electron cc-piece-text 的 KaiTi+bold）。
-var pocFontSerifBold = font.Font{Typeface: pocFontFaceSerifSC, Weight: font.Bold}
-
-// pocFontMedium 河界/坐标文字（Electron cc-river-text：weight 500=Medium，默认族）。
-var pocFontMedium = font.Font{Weight: font.Medium}
