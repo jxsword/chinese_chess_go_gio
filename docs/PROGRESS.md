@@ -258,6 +258,25 @@
 
 回归：GOMAXPROCS=2 go test ./... -race -count=1 全绿。
 
+### 验收反馈修复轮第 11 轮（2026-10-07，§6.2）
+
+用户反馈：LLM 对战页点"立即保存"似乎保存了参数到文件，但没有 toast。
+
+**【修复·真根因】"立即保存"按钮从未消费点击（死按钮）**：llmvsllm.go 渲染了
+saveNowBtn 但 handleEvents 从未调用其 Clicked（M3' chips 同款教训——渲染
+不消费=死按钮）。用户看到的"保存到文件"是改设置 chips 触发的 800ms 防抖
+自动保存（persistNow），并非按钮行为。**修复**：handleEvents 补
+saveNowBtn.Clicked 消费（含弹窗遮罩分支）。
+
+**实测验证（插桩+像素双证据）**：点击 → saveNow 触发 → 两槽位回执齐
+（llm_config_red/black, stored=plainFallback——keyring 缺席，0600 明文
+回退如实呈现）→ **toast 显示**（深色胶囊 y 1032-1107，像素取证 (86,75,59)
+等胶囊色）→ 2.2s 自动消失（toast 区域恢复按钮带色）。
+**此前几轮误报澄清**：r15/r18 的 toast 分析输出被 found[:6] 截断——
+toast 实际显示过；用户当时点的是旧实例（多实例未清理，死按钮版）。
+
+回归：GOMAXPROCS=2 go test ./... -race -count=1 全绿。
+
 ## M4' 手测清单（用户执行；真实端点一整局为验收门）
 
 ### 准备：端点配置（GLM / DeepSeek 任选其一，或都用）

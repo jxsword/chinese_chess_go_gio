@@ -750,11 +750,12 @@ func (p *LlmVsLlmPage) modalOpen() bool {
 
 func (p *LlmVsLlmPage) handleEvents(gtx layout.Context) {
 	if p.modalOpen() {
-		// 弹窗遮罩：消费全部点击边沿但不生效（KG-008——含 chips/设置行）
+		// 弹窗遮罩：消费全部点击边沿但不生效（KG-008——含 chips/设置行/保存按钮）
 		p.backBtn.Clicked(gtx)
 		p.newGameBtn.Clicked(gtx)
 		p.startStopBtn.Clicked(gtx)
 		p.stopBtn.Clicked(gtx)
+		p.saveNowBtn.Clicked(gtx)
 		p.consumeSideChips(gtx, true)
 		p.consumeChoices(gtx, true)
 		return
@@ -774,6 +775,9 @@ func (p *LlmVsLlmPage) handleEvents(gtx layout.Context) {
 	}
 	if p.stopBtn.Clicked(gtx) && p.running {
 		p.stop()
+	}
+	if p.saveNowBtn.Clicked(gtx) {
+		p.saveNow()
 	}
 	p.consumeSideChips(gtx, p.running)
 	p.consumeChoices(gtx, false)
