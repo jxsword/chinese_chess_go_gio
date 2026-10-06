@@ -921,16 +921,9 @@ func (p *LlmVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// 侧板滚动区行号（双信息 + 双配置卡 + 设置区）。消息区放最后：固定高度
-// 不挤占设置区（M4' 验收反馈第 8 轮）。
-const (
-	llvRowInfo = iota
-	llvRowRedCard
-	llvRowBlackCard
-	llvRowSideTypes
-	llvRowSettingsBase // 自此起对局设置行（0=超时 1=重试 2=降级 3=间隔 4=参谋 5=红强 6=黑强 7=深度）
-	llvRowMsg
-)
+// 侧板行数：前四行（信息/红卡/黑卡/引擎类型）+ 设置行 + 消息区（同
+// humanvsllm 口径：total 驱动派发，第 9 轮实证常量相撞）。
+func (p *LlmVsLlmPage) sideRowCount() int { return 4 + p.settingRowCount() + 1 }
 
 func (p *LlmVsLlmPage) settingRowCount() int {
 	if p.gameSettings.AdvisorMode != llm.AdvisorOff {
@@ -943,8 +936,7 @@ func (p *LlmVsLlmPage) settingRowCount() int {
 func (p *LlmVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			rows := llvRowSettingsBase + p.settingRowCount() + 1 // 前四行 + 设置行 + 消息区
-			return p.sideList.Layout(gtx, rows, p.sideRow)
+			return p.sideList.Layout(gtx, p.sideRowCount(), p.sideRow)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -954,20 +946,23 @@ func (p *LlmVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	)
 }
 
+// sideRow 侧板滚动区行投影（total 驱动：0=信息 1=红卡 2=黑卡 3=引擎类型
+// 4..n=设置行 末行=消息区）。
 func (p *LlmVsLlmPage) sideRow(gtx layout.Context, i int) layout.Dimensions {
+	total := p.sideRowCount()
 	switch {
-	case i == llvRowInfo:
+	case i == 0:
 		return p.layoutGameInfo(gtx)
-	case i == llvRowRedCard:
+	case i == 1:
 		return p.layoutRedCard(gtx)
-	case i == llvRowBlackCard:
+	case i == 2:
 		return p.layoutBlackCard(gtx)
-	case i == llvRowSideTypes:
+	case i == 3:
 		return p.layoutSideTypeRow(gtx)
-	case i == llvRowMsg:
+	case i == total-1:
 		return messageAreaCard(gtx, p.msgArea, "消息区")
 	default:
-		idx := i - llvRowSettingsBase
+		idx := i - 4
 		if idx < 0 || idx >= p.settingRowCount() {
 			return layout.Dimensions{}
 		}

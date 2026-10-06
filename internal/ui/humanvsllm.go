@@ -888,23 +888,17 @@ func (p *HumanVsLlmPage) layoutBody(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// 侧板滚动区行号（行数随参谋模式增减）。消息区放最后：固定高度不挤占
-// 设置区（M4' 验收反馈第 8 轮——设置常驻上方可达）。
-const (
-	sideRowInfo = iota
-	sideRowOpponent
-	sideRowConfig
-	sideRowSettingsBase // 自此起为对局设置行（0=超时 1=重试 2=降级 3=参谋 4=强度 5=深度）
-	sideRowMsg
-)
+// 侧板行数：前三行（信息/对手/配置卡）+ 设置行 + 消息区（消息区放最后：
+// 固定高度不挤占设置区——M4' 验收反馈第 8 轮；行索引用 total 驱动派发，
+// 禁用 iota 常量索引——第 9 轮实证设置行与消息行常量相撞）。
+func (p *HumanVsLlmPage) sideRowCount() int { return 3 + p.settingRowCount() + 1 }
 
 // layoutSidePanel 侧板：Flex 竖排{滚动区(layout.List), 固定底部按钮行}——
 // 立即保存粘性置底（上游 §3.6 优化 3：滚动时按钮恒可见）。
 func (p *HumanVsLlmPage) layoutSidePanel(gtx layout.Context) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			rows := sideRowSettingsBase + p.settingRowCount() + 1 // 前三行 + 设置行 + 消息区
-			return p.sideList.Layout(gtx, rows, p.sideRow)
+			return p.sideList.Layout(gtx, p.sideRowCount(), p.sideRow)
 		}),
 		// 粘性置底按钮行（恒可见）
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -923,19 +917,22 @@ func (p *HumanVsLlmPage) settingRowCount() int {
 	return 4
 }
 
-// sideRow 侧板滚动区行投影。
+// sideRow 侧板滚动区行投影（total 驱动：0=信息 1=对手 2=配置卡
+// 3..n=设置行 末行=消息区——固定常量与设置行索引相撞即消息卡嵌入
+// 设置行中间，第 9 轮实证）。
 func (p *HumanVsLlmPage) sideRow(gtx layout.Context, i int) layout.Dimensions {
+	total := p.sideRowCount()
 	switch {
-	case i == sideRowInfo:
+	case i == 0:
 		return p.layoutGameInfo(gtx)
-	case i == sideRowOpponent:
+	case i == 1:
 		return p.layoutOpponentRow(gtx)
-	case i == sideRowConfig:
+	case i == 2:
 		return p.layoutConfigSection(gtx)
-	case i == sideRowMsg:
+	case i == total-1:
 		return messageAreaCard(gtx, p.msgArea, "消息区")
 	default:
-		idx := i - sideRowSettingsBase
+		idx := i - 3
 		if idx < 0 || idx >= p.settingRowCount() {
 			return layout.Dimensions{}
 		}

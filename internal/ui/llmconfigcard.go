@@ -30,6 +30,19 @@ var colorWhite = rgb(0xffffff)
 // 读写边界共用一份实现；背景见 state/sanitize.go）。
 func sanitizeField(s string) string { return state.SanitizeTextField(s) }
 
+// sanitizeASCIIField ASCII 域字段清洗（baseUrl/apiKey/model）：在控制字符剥离
+// 之上再剥离全部非 ASCII——WSLg 剪贴板桥接（KG-004）对混合剪贴板内容会追
+// 加/夹带 CJK mojibake 块（M4' 验收反馈第 9 轮实证），ASCII 域字段内非
+// ASCII 即为桥接杂字符。preset（预设名，中文）不适用本清洗。
+func sanitizeASCIIField(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r > 0x7e {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(s))
+}
+
 // 配置卡文本字段目标编号（PasteTextDone.Target 定向回填）。
 const (
 	PasteTargetBaseURL = iota
@@ -54,6 +67,9 @@ type LlmConfigCard struct {
 	testResult string
 	testOK     bool
 
+	apiKeyMasked bool // Key 显示掩码态（默认隐藏，点击"显示"图标再明文）
+	showHideBtn  widget.Clickable
+
 	presetBtns []widget.Clickable
 	baseURL    widget.Editor
 	apiKey     widget.Editor
@@ -67,10 +83,11 @@ func NewLlmConfigCard(title, slot string, presets []llm.LlmPreset, config llm.Ll
 	if presets == nil {
 		presets = llm.LlmPresets
 	}
-	c := &LlmConfigCard{title: title, slot: slot, presets: presets, config: config, onChange: onChange}
+	c := &LlmConfigCard{title: title, slot: slot, presets: presets, config: config, onChange: onChange, apiKeyMasked: true}
 	c.baseURL.SingleLine = true
 	c.apiKey.SingleLine = true
 	c.model.SingleLine = true
+	c.apiKey.Mask = '•' // Key 默认掩码显示（点击"显示"明文）
 	c.baseURL.SetText(config.BaseURL)
 	c.apiKey.SetText(config.APIKey)
 	c.model.SetText(config.Model)
@@ -80,9 +97,9 @@ func NewLlmConfigCard(title, slot string, presets []llm.LlmPreset, config llm.Ll
 
 // SetConfig 覆盖配置（加载回执/预设切换/页面镜像时调用；同步编辑器文本并清洗）。
 func (c *LlmConfigCard) SetConfig(cfg llm.LlmEndpointConfig) {
-	cfg.BaseURL = sanitizeField(cfg.BaseURL)
-	cfg.APIKey = sanitizeField(cfg.APIKey)
-	cfg.Model = sanitizeField(cfg.Model)
+	cfg.BaseURL = sanitizeASCIIField(cfg.BaseURL)
+	cfg.APIKey = sanitizeASCIIField(cfg.APIKey)
+	cfg.Model = sanitizeASCIIField(cfg.Model)
 	c.config = cfg
 	c.baseURL.SetText(cfg.BaseURL)
 	c.apiKey.SetText(cfg.APIKey)
@@ -93,10 +110,19 @@ func (c *LlmConfigCard) SetConfig(cfg llm.LlmEndpointConfig) {
 // 表单边界清洗，sanitizeField）。
 func (c *LlmConfigCard) Config() llm.LlmEndpointConfig {
 	return llm.LlmEndpointConfig{
-		BaseURL: sanitizeField(c.baseURL.Text()),
-		APIKey:  sanitizeField(c.apiKey.Text()),
-		Model:   sanitizeField(c.model.Text()),
+		BaseURL: sanitizeASCIIField(c.baseURL.Text()),
+		APIKey:  sanitizeASCIIField(c.apiKey.Text()),
+		Model:   sanitizeASCIIField(c.model.Text()),
 		Preset:  c.config.Preset,
+	}
+}
+
+// applyKeyMask 掩码态落到编辑器（Mask='•' 隐藏 / 0 明文）。
+func (c *LlmConfigCard) applyKeyMask() {
+	if c.apiKeyMasked {
+		c.apiKey.Mask = '•'
+	} else {
+		c.apiKey.Mask = 0
 	}
 }
 
@@ -118,7 +144,7 @@ func (c *LlmConfigCard) ApplyPaste(target int, text string, err error) {
 	if err != nil {
 		return // 粘贴失败静默（非 Windows 环境按钮本就少用；不干扰表单）
 	}
-	text = sanitizeField(text)
+	text = sanitizeASCIIField(text)
 	if text == "" {
 		return
 	}
@@ -202,6 +228,10 @@ func (c *LlmConfigCard) handleEvents(gtx layout.Context) {
 			c.OnPaste(PasteTargetBaseURL + i)
 		}
 	}
+	if c.showHideBtn.Clicked(gtx) {
+		c.apiKeyMasked = !c.apiKeyMasked
+		c.applyKeyMask()
+	}
 	if c.testBtn.Clicked(gtx) && !c.testing && c.OnTestConnection != nil {
 		c.SetTesting()
 		c.OnTestConnection(c.Config(), c.slot)
@@ -250,9 +280,13 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 			})
 		}),
-		layout.Rigid(c.fieldRow(&c.baseURL, "端点地址（Base URL）", "https://…/v4 或 https://…/v1", 0)),
-		layout.Rigid(c.fieldRow(&c.apiKey, "API Key", "留空表示本地网关；已保存的 Key 以掩码回显", 1)),
-		layout.Rigid(c.fieldRow(&c.model, "模型 ID", "如 glm-4-flash / deepseek-chat", 2)),
+		layout.Rigid(c.fieldRow(&c.baseURL, "端点地址（Base URL）", "https://…/v4 或 https://…/v1", 0, false)),
+		layout.Rigid(c.fieldRow(&c.apiKey, "API Key", "已保存的 Key 以掩码回显；「显示」明文", 1, true)),
+		layout.Rigid(c.fieldRow(&c.model, "模型 ID", "如 glm-4-flash / deepseek-chat", 2, false)),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// KG-004：Ctrl+V 经 WSLg 剪贴板桥接可能损坏/追加杂字符——指引优先用粘贴按钮。
+			return hintLine(gtx, "提示：Ctrl+V 经剪贴板桥接可能损坏或追加杂字符，请优先用各字段旁的「粘贴」按钮。")
+		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			// DR-005：思维链强制关闭固定提示（无开关路径）。
 			l := material.Body2(PageTheme, "思维链已强制关闭（按端点预设发送关闭参数，无需配置）。")
@@ -289,8 +323,9 @@ func (c *LlmConfigCard) draw(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// fieldRow 标签 + 输入框（Editor）+ 粘贴按钮（KG-004）。
-func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx int) func(gtx layout.Context) layout.Dimensions {
+// fieldRow 标签 + 输入框（Editor）+ 粘贴按钮（KG-004）；showHide=true 时
+// 追加 Key 显示/隐藏切换（掩码显示）。
+func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx int, showHide bool) func(gtx layout.Context) layout.Dimensions {
 	return func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -303,6 +338,27 @@ func (c *LlmConfigCard) fieldRow(ed *widget.Editor, label, hint string, pasteIdx
 							return l.Layout(gtx)
 						}),
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{} }),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							if !showHide {
+								return layout.Dimensions{}
+							}
+							label := "显示"
+							if !c.apiKeyMasked {
+								label = "隐藏"
+							}
+							size := image.Point{X: gtx.Dp(unit.Dp(56)), Y: gtx.Dp(unit.Dp(28))}
+							return c.showHideBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								gtx.Constraints = layout.Exact(size)
+								defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(14))).Push(gtx.Ops).Pop()
+								fillRect(gtx.Ops, image.Rectangle{Max: size}, ThemeSurface)
+								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									l := material.Body2(PageTheme, label)
+									l.Color = ThemeSeedDark
+									l.TextSize = unit.Sp(13)
+									return l.Layout(gtx)
+								})
+							})
+						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							size := image.Point{X: gtx.Dp(unit.Dp(52)), Y: gtx.Dp(unit.Dp(28))}
 							return c.pasteBtns[pasteIdx].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
