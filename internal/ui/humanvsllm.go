@@ -103,7 +103,7 @@ type HumanVsLlmPage struct {
 	choiceAdvDiff  *choiceRow
 	sideLlmBtn     widget.Clickable
 	sideBuiltinBtn widget.Clickable
-	sideList       layout.List // 侧板外层滚动列表（页级字段——每帧新建会清零滚动状态）
+	sideList       layout.List // 侧板外层滚动列表（页级字段；**必须 Vertical**——gio 零值 List 为水平，第 9 轮"分两列"真根因）
 	saveNowBtn     widget.Clickable
 	newGameBtn     widget.Clickable
 	undoBtn        widget.Clickable
@@ -146,6 +146,7 @@ func newHumanVsLlmPage(env LlmEnv, hooks HumanVsLlmHooks, llmRunner LlmRunner, r
 		opponentType: gs.HumanVsLlmOpponentType,
 		gameSettings: gs,
 		msgArea:      newStreamMessageArea(),
+		sideList:     layout.List{Axis: layout.Vertical},
 		restoreID:    env.NewRequestID("restore"),
 	}
 	p.board = NewBoardView(p.store)

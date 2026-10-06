@@ -97,7 +97,7 @@ type LlmVsLlmPage struct {
 	choiceAdvDiff  *choiceRow
 	sideRedLlm     widget.Clickable
 	sideRedBuiltin widget.Clickable
-	sideList       layout.List // 侧板外层滚动列表（页级字段，同 humanvsllm）
+	sideList       layout.List // 侧板外层滚动列表（页级字段；**必须 Vertical**——同 humanvsllm）
 	sideBlkLlm     widget.Clickable
 	sideBlkBuiltin widget.Clickable
 	startStopBtn   widget.Clickable // 开始/暂停·继续（同一按钮）
@@ -140,6 +140,7 @@ func newLlmVsLlmPage(env LlmEnv, hooks LlmVsLlmHooks, llmRunner LlmRunner, runne
 		statusText:   "等待开始",
 		gameSettings: gs,
 		msgArea:      newStreamMessageArea(),
+		sideList:     layout.List{Axis: layout.Vertical},
 		restoreID:    env.NewRequestID("restore"),
 	}
 	p.board = NewBoardView(p.store)
