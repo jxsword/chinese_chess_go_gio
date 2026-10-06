@@ -322,8 +322,8 @@ func (r *ReplayView) Layout(gtx layout.Context) layout.Dimensions {
 					if r.puzzle.Endgame {
 						kind = "残局题"
 					}
-					l := material.Body2(PageTheme, fmt.Sprintf("%s · %d 着 · %s",
-						r.puzzle.Source, len(r.moves), kind))
+					l := material.Body2(PageTheme, fmt.Sprintf("%s · %d 着 · 难度 %s · %s",
+						r.puzzle.Source, len(r.moves), parsers.DifficultyText(r.puzzle.Difficulty), kind))
 					l.TextSize = unit.Sp(12)
 					l.Color = ThemeSeedDark
 					return l.Layout(gtx)

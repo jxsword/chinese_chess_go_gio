@@ -342,9 +342,11 @@ func (s *CorpusBrowser) beginOp(requestID string) {
 	s.opID = requestID
 }
 
-func (s *CorpusBrowser) stale() bool {
+// staleChan 协作取消探针（工作 goroutine 用值捕获的通道——beginOp 在主
+// goroutine close+重建通道字段，goroutine 不得再读字段，-race 口径）。
+func staleChan(done <-chan struct{}) bool {
 	select {
-	case <-s.opDone:
+	case <-done:
 		return true
 	default:
 		return false
@@ -356,9 +358,10 @@ func (s *CorpusBrowser) stale() bool {
 func (s *CorpusBrowser) Load(requestID string) {
 	s.beginOp(requestID)
 	gen := s.gen
+	done := s.opDone
 	s.driver.Go(func() {
 		scan, err := s.io.Scan()
-		if s.stale() {
+		if staleChan(done) {
 			return
 		}
 		if err != nil {
@@ -391,9 +394,10 @@ func (s *CorpusBrowser) SelectCategory(requestID string, index int) {
 		// PGN 大文件分类不批量解析。
 		return
 	}
+	done := s.opDone
 	s.driver.Go(func() {
 		entries, err := s.io.ListEntries(category.Path, category.Name)
-		if s.stale() {
+		if staleChan(done) {
 			return
 		}
 		if err != nil {
@@ -404,7 +408,7 @@ func (s *CorpusBrowser) SelectCategory(requestID string, index int) {
 		total := len(entries)
 		puzzles := make([]*ParsedPuzzleView, total)
 		for start := 0; start < total; start += ParseBatchSize {
-			if s.stale() {
+			if staleChan(done) {
 				return
 			}
 			end := start + ParseBatchSize
@@ -413,7 +417,7 @@ func (s *CorpusBrowser) SelectCategory(requestID string, index int) {
 			}
 			chunk := entries[start:end]
 			views := s.parseChunk(requestID, gen, chunk)
-			if s.stale() {
+			if staleChan(done) {
 				return
 			}
 			for i, v := range views {
@@ -484,9 +488,10 @@ func (s *CorpusBrowser) OpenPgnCategory(requestID string, index int) {
 	s.PgnPage = 0
 	s.PgnLoading = true
 	s.ViewingPuzzle = nil
+	done := s.opDone
 	s.driver.Go(func() {
 		index, err := s.io.PgnIndex(category.Path)
-		if s.stale() {
+		if staleChan(done) {
 			return
 		}
 		if err != nil {
@@ -508,9 +513,10 @@ func (s *CorpusBrowser) OpenPgnGame(requestID string, entry storage.PgnIndexEntr
 	s.ViewingLoading = true
 	s.ViewingError = ""
 	s.ViewingPuzzle = nil
+	done := s.opDone
 	s.driver.Go(func() {
 		text, err := s.io.ReadPgnGame(pgnPath, entry)
-		if s.stale() {
+		if staleChan(done) {
 			return
 		}
 		if err != nil {
@@ -522,7 +528,7 @@ func (s *CorpusBrowser) OpenPgnGame(requestID string, entry storage.PgnIndexEntr
 			Source: pgnSource,
 			Bytes:  []byte(text),
 		}})
-		if s.stale() {
+		if staleChan(done) {
 			return
 		}
 		var view *ParsedPuzzleView

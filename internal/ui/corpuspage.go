@@ -99,8 +99,7 @@ type CorpusPage struct {
 	perf *framePerf
 
 	// 重放器（T5'.3）：详情视图 + 自动播放计时（replay:tick 经事件总线）。
-	replay       *ReplayView
-	replayForPtr *state.ParsedPuzzleView // 当前已装载的详情（换局检测）
+	replay *ReplayView
 
 	// PGN 搜索（T5'.2）与详情视图（T5'.3）控件随后续任务落位
 }
@@ -761,7 +760,7 @@ func (p *CorpusPage) rowClicker(i int) *widget.Clickable {
 }
 
 // smallPasteButton 搜索框旁的粘贴按钮（KG-004：中文搜索词经 Windows 剪贴板；
-// M4' 配置卡粘贴按钮同款 52×28dp）。
+// 52×34dp——28dp 下 material.Button 内边距裁切文字，M3'/M4' 验收同类教训）。
 func (p *CorpusPage) smallPasteButton(c *widget.Clickable) func(gtx layout.Context) layout.Dimensions {
 	return func(gtx layout.Context) layout.Dimensions {
 		btn := material.Button(PageTheme, c, "粘贴")
@@ -771,8 +770,8 @@ func (p *CorpusPage) smallPasteButton(c *widget.Clickable) func(gtx layout.Conte
 		return layout.Inset{Left: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(52))
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(52))
-			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(28))
-			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(28))
+			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(34))
+			gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(34))
 			return btn.Layout(gtx)
 		})
 	}
