@@ -263,8 +263,19 @@ func Run(cfg Config) error {
 			},
 		})
 	})
-	// 其余 3 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteEndgameSelect, RouteStudio, RouteCorpus} {
+	// 语料库/棋谱库页（T5'.1）：工厂页——每次导航进入创建新实例并重扫
+	//（上游 useEffect(load, []) 每挂载语义），离开 Dispose 取消在途解析/下载。
+	w.Router().RegisterFactory(RouteCorpus, func() ui.Page {
+		return ui.NewCorpusPage(w.corpusEnv(), ui.CorpusHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		})
+	})
+	// 其余 2 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteEndgameSelect, RouteStudio} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),

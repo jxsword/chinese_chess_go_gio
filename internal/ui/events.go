@@ -132,3 +132,25 @@ type PasteTextDone struct {
 	Text   string
 	Err    error
 }
+
+// CorpusDownloadProgress 语料下载进度（00 §4 `corpus:progress`，M5'）。
+// Received/Total 为字节；Total ≤ 0 表示总长未知。
+type CorpusDownloadProgress struct {
+	RequestID string
+	Received  int64
+	Total     int64
+}
+
+// CorpusDownloadDone 语料下载结算回执（00 §4 `corpus:download`，M5'）：
+// Err = nil 成功（页面重扫语料目录）；取消时回执被总线按 id 丢弃（#G5）；
+// 总线 Err 字段不进页面，错误内嵌本载荷。
+type CorpusDownloadDone struct {
+	RequestID string
+	Err       error
+}
+
+// ReplayTick 重放器自动播放步进（00 §4 `replay:tick`，Gio 新增 M5'）：
+// 定时器到点后排帧推进；Gen 代次过期忽略（M6' puzzleDemo 状态机接管）。
+type ReplayTick struct {
+	Gen int
+}
