@@ -87,44 +87,9 @@ type HumanVsAiPage struct {
 	drawDialog    *ModalDialog
 }
 
-// chipOpt 选项 chip（选择类控件；selected=当前项高亮）。
-type chipOpt struct {
-	click    *widget.Clickable
-	label    string
-	selected bool
-}
-
-// layoutChipsRow 一行选项 chips（点击态由页面 handleEvents 消费）。
+// layoutChipsRow 一行选项 chips（共享 layoutOptionChips 的 42dp 定宽形态）。
 func (p *HumanVsAiPage) layoutChipsRow(gtx layout.Context, opts ...chipOpt) layout.Dimensions {
-	children := make([]layout.FlexChild, 0, len(opts))
-	for _, o := range opts {
-		o := o
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			bg := ThemeSurface
-			fg := ThemeSeedDark
-			if o.selected {
-				bg = ThemeSeed
-				fg = ThemeSurface
-			}
-			return layout.Inset{Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				size := image.Point{X: gtx.Dp(unit.Dp(42)), Y: gtx.Dp(unit.Dp(26))}
-				// click.Layout 注册指针输入区（自绘 chip 必须经 Clickable.Layout
-				// 或显式 Add——否则点击不生效）
-				return o.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints = layout.Exact(size)
-					defer clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(unit.Dp(13))).Push(gtx.Ops).Pop()
-					paint.Fill(gtx.Ops, bg)
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						l := material.Body2(PageTheme, o.label)
-						l.Color = fg
-						l.TextSize = unit.Sp(12)
-						return l.Layout(gtx)
-					})
-				})
-			})
-		}))
-	}
-	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+	return layoutOptionChips(gtx, 42, opts...)
 }
 
 // difficultyName 难度显示名（move_source.dart:96-99）。

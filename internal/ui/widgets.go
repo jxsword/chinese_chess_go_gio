@@ -181,3 +181,48 @@ func formatMoveText(m rules.Move) string {
 	}
 	return "?"
 }
+
+// chipOpt 选项 chip（选择类控件；selected=当前项高亮）。
+type chipOpt struct {
+	click    *widget.Clickable
+	label    string
+	selected bool
+}
+
+// layoutOptionChips 一行选项 chips（人机页/LLM 配置卡共用；width=单 chip 最小宽 dp，
+// 需经 Clickable.Layout 注册指针区——M3' 验收修复口径）。
+func layoutOptionChips(gtx layout.Context, width int, opts ...chipOpt) layout.Dimensions {
+	children := make([]layout.FlexChild, 0, len(opts))
+	for _, o := range opts {
+		o := o
+		w := gtx.Dp(unit.Dp(width))
+		if w < gtx.Dp(unit.Dp(42)) {
+			w = gtx.Dp(unit.Dp(42))
+		}
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			bg := ThemeSurface
+			fg := ThemeSeedDark
+			if o.selected {
+				bg = ThemeSeed
+				fg = ThemeSurface
+			}
+			return layout.Inset{Right: unit.Dp(4), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return o.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.X = w
+					gtx.Constraints.Max.X = w
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
+					gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(26))
+					defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(13))).Push(gtx.Ops).Pop()
+					paint.Fill(gtx.Ops, bg)
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						l := material.Body2(PageTheme, o.label)
+						l.Color = fg
+						l.TextSize = unit.Sp(12)
+						return l.Layout(gtx)
+					})
+				})
+			})
+		}))
+	}
+	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+}
