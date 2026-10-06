@@ -97,12 +97,12 @@ func (p *HomePage) Layout(gtx layout.Context) layout.Dimensions {
 
 	inset := unit.Dp(24)
 	return layout.Inset{Top: inset, Bottom: inset, Left: inset, Right: inset}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-			// 标题区
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			// 标题区（居中：根约束 Min=Max=窗宽，须用 Center 清 Min 再居中）
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				title := material.H3(PageTheme, "中国象棋 Ultra")
 				title.Color = ThemeOnSurface
-				return title.Layout(gtx)
+				return layout.Center.Layout(gtx, title.Layout)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				sub := material.Body2(PageTheme, "Gio 全自绘单二进制桌面版")
@@ -117,17 +117,24 @@ func (p *HomePage) Layout(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = cardH * len(homeEntries)
 				return p.list.Layout(gtx, len(homeEntries), func(gtx layout.Context, i int) layout.Dimensions {
 					return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.drawEntryCard(gtx, homeEntries[i])
+						// 行宽=窗宽（Min 继承），Center 清 Min 后按卡宽水平居中
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return p.drawEntryCard(gtx, homeEntries[i])
+						})
 					})
 				})
 			}),
-			// 全局设置入口
+			// 全局设置入口（水平居中，按钮定宽）
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(160))
 				btn := material.Button(PageTheme, &p.settingsBtn, "全局设置")
 				btn.Background = ThemeSurfaceDim
 				btn.Color = ThemeSeedDark
-				return layout.Inset{Top: unit.Dp(10)}.Layout(gtx, btn.Layout)
+				return layout.Inset{Top: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Dp(unit.Dp(160))
+						return btn.Layout(gtx)
+					})
+				})
 			}),
 		)
 	})
@@ -149,17 +156,20 @@ func (p *HomePage) drawEntryCard(gtx layout.Context, e entryDesc) layout.Dimensi
 		gtx.Constraints = layout.Exact(image.Point{X: w, Y: h})
 		defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: w, Y: h}}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
 		paint.Fill(gtx.Ops, bg)
-		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				t := material.H6(PageTheme, e.title)
-				t.Color = ThemeOnSurface
-				return t.Layout(gtx)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				s := material.Body2(PageTheme, e.subtitle)
-				s.Color = ThemeSeedDark
-				return s.Layout(gtx)
-			}),
-		)
+		// 文本块整块居中（Center 清 Min 使文本按内容取宽，再在卡内两轴居中）
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					t := material.H6(PageTheme, e.title)
+					t.Color = ThemeOnSurface
+					return t.Layout(gtx)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					s := material.Body2(PageTheme, e.subtitle)
+					s.Color = ThemeSeedDark
+					return s.Layout(gtx)
+				}),
+			)
+		})
 	})
 }
