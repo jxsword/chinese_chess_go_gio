@@ -11,6 +11,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 	"github.com/jxsword/chinese_chess_go_gio/internal/ui"
 )
 
@@ -36,6 +37,23 @@ type Window struct {
 	bus       *EventBus
 	router    *Router
 	lifecycle *LifecycleRouter
+	// 存储装配（T2'.1，07 §1/§4/§5）：数据目录懒打开 + 全局设置单例
+	//（铁律 #G4 例外面，上游同口径）。
+	store    *DataStore
+	settings *state.GlobalSettings
+}
+
+// Store 存储装配（M2' 起对局页经 repo 适配器使用）。
+func (w *Window) Store() *DataStore { return w.store }
+
+// Settings 全局设置单例。
+func (w *Window) Settings() *state.GlobalSettings { return w.settings }
+
+// emitFunc 供 repo 适配器等后台提交事件的回调面（ui 不 import app 的解耦点）。
+func (w *Window) emitFunc() func(requestID string, payload any, err error) {
+	return func(requestID string, payload any, err error) {
+		w.Emit(AppEvent{RequestID: requestID, Payload: payload, Err: err})
+	}
 }
 
 // OpenWindow 创建窗口。
@@ -48,6 +66,16 @@ func OpenWindow(cfg WindowConfig) *Window {
 		router:    NewRouter(),
 		lifecycle: NewLifecycleRouter(),
 	}
+}
+
+// openDataStore 数据目录装配（07 §1）；目录不可用时降级（log + 空目录）。
+func openDataStore() *DataStore {
+	dir, err := DataDir()
+	if err != nil {
+		log.Println("app: 数据目录不可用（本地存储降级）:", err)
+		return OpenDataStore("")
+	}
+	return OpenDataStore(dir)
 }
 
 // Emit 供后台 goroutine 提交事件并排帧（Invalidate 线程安全）。
@@ -131,6 +159,11 @@ func Run(cfg Config) error {
 		Width:  unit.Dp(1024),
 		Height: unit.Dp(768),
 	})
+	// 存储装配（T2'.1）：数据目录懒打开 + 全局设置单例加载（07 §5）。
+	w.store = openDataStore()
+	w.settings = state.NewGlobalSettings(w.store.Settings())
+	w.settings.Load()
+	defer w.store.Close()
 	w.Router().Register(RouteHome, ui.NewHomePage(ui.HomePageHooks{
 		OnNavigate: func(id ui.EntryID) {
 			if err := w.Navigate(routeOfEntry(id)); err != nil {
