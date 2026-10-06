@@ -29,6 +29,18 @@
 - 主页可导航（待手测确认）；
 - 质量门：`gofmt -l` 空输出 + `go vet ./...` 0 问题 + `go test ./... -race` 全量通过。
 
+## M1' 验收反馈修复轮（2026-10-06，§6.2 流程）
+
+1. **【修复】主页 7 入口卡/标题/副标题/设置按钮未居中**：根因=gio 根约束 Min=Max=窗宽，
+   material 文本撑满 Min 使 Flex cross 轴 Middle 偏移归零；改用 `layout.Center`
+   （清 Min 后在原 Min 范围内居中）。X11 实拍截图验证（commit 6c602ac）。
+2. **【修复·D-002】标题栏中文乱码（KG-005）**：用户决策 B——运行时检测 WSLg（/mnt/wslg
+   + /proc/version 兜底）改用 ASCII 标题，其余平台保持中文；`internal/app/wslg.go`
+   注入式单测四分支全绿；WSLg 内实测 `_NET_WM_NAME` = "Chinese Chess Ultra (Gio)"。
+   决策矩阵与记录见 docs/decision_log.md D-002。
+
+其余手测项全部通过。回归：gofmt/vet/`go test ./... -race` 全绿。
+
 ## M1' 复审记录（§6.1 两轮）
 
 - 第一轮·语义一致性：gamevm.go 与上游 gameVm.ts 逐方法对照（含 undoRound 三段 pop 语义、restore 跳脏条件、resign/agreeDraw 解锁）；修正 executeMove 内联快照→复用 buildSnapshot（终局判定单一出口）；副标题去里程碑术语。

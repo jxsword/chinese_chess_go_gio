@@ -127,7 +127,7 @@ func (w *Window) Run(page ui.Page) error {
 // Run 组装主页 + 7 入口路由并进入事件循环（main.go 调用）。
 func Run(cfg Config) error {
 	w := OpenWindow(WindowConfig{
-		Title:  "中国象棋 Ultra（Gio 版）",
+		Title:  windowTitle(realEnvProbe), // KG-005（D-002）：WSLg 内 ASCII 标题绕过
 		Width:  unit.Dp(1024),
 		Height: unit.Dp(768),
 	})
