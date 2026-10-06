@@ -2,8 +2,8 @@
 
 ## 当前状态
 
-**M0' 工程骨架 + UI POC 排险——已验收通过**（2026-10-06，两轮验收 + 两轮修复后收尾）。
-下一里程碑 M1'（状态层核心 + 主页，启动提示词=design_docs/11 §4.2，全新会话粘贴）。
+**M1' 状态层核心 + 主页——代码完成，待用户手测验收**（2026-10-06，质量门全绿，§6 两轮复审通过）。
+验收流：本清单手测（见文末"请手测清单 M1'"）→ 有 bug 修复回归 → 验证通过再进 M2'。
 
 ## 里程碑总览
 
@@ -11,78 +11,73 @@
 |---|---|---|
 | 设计文档阶段（含领域层复制） | ✅ | 本文件首条记录 |
 | **M0' 工程骨架 + UI POC 排险** | ✅ 验收通过（tag v0.1.0-m0'） | T0'.1~T0'.7 完成；POC 五项结论回填 08 §12/DR-G003；两轮验收修复（KG-003~007） |
-| M1'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+| **M1' 状态层核心 + 主页** | 🟡 待手测验收 | T1'.1~T1'.3 完成；DR-G002 翻译用例全绿；主页可导航；事件总线单测全绿 |
+| M2'~M7' | ⬜ | 见 design_docs/10-实施路线图.md |
 
-## M0' 完成清单（T0'.1~T0'.7，逐任务 commit）
+## M1' 完成清单（T1'.1~T1'.3，逐任务 commit）
 
 | 任务 | 交付 | 验收结果 |
 |---|---|---|
-| T0'.1 | go.mod 锁版（**gioui.org v0.10.3 + go-text/typesetting v0.3.5**，白名单内）+ main.go 薄入口 + internal/{app,ui,state} 骨架 + 单事件循环（FrameEvent→drain→Layout→提交帧；后台 goroutine 经 Window.Emit 非阻塞通道 + Invalidate 排帧，#G3） | X11 弹窗验证 ✓ |
-| T0'.2 | POC-1 棋盘自绘（poc_boardlayout/boardart/board.go + cmd/poc board）：08 §3.2 全要素 + Electron boardArt 逐元素映照 + 几何表驱动单测 | 与 Electron 参照渲染并排对照一致（poc1_compare.png）；无离屏缓存需求 |
-| T0'.3 | POC-2 动画帧循环（poc_anim.go）：220ms 两阶段 easeOutCubic、帧时间戳 t≥1 权威结束、吞输入计数、220ms/1s 慢速切换 | 实测 225~235ms（≤1 帧偏差）；单测覆盖缓动+权威判定 |
-| T0'.4 | POC-3 IME+字体（poc_ime.go）：Editor 自动聚焦+ChangeEvent 回读+首帧写剪贴板+四配置字体链 | XIM 不可用（KG-003）+粘贴兜底可用（xdotool 自动化探针实证） |
-| T0'.5 | POC-4 长列表（poc_list.go）：合成 14 万局 + layout.List 虚拟化 + FPS/帧开销统计 + 自动滚动压测 | **FPS 80，帧开销 avg 680µs / max 1.315ms**（达标）；KG-002（ScrollBy 病理）登记 |
-| T0'.6 | POC-5 WSLg 渲染：X11/Wayland 运行时回退、软渲染兜底（LIBGL_ALWAYS_SOFTWARE=1 渲染正确）、xwd 逐窗截图取证链（K5 不复现） | 结论入 08 §12；构建依赖记 AGENTS.md |
-| T0'.7 | ci.yml：gofmt（ubuntu）+ vet/test -race 矩阵（ubuntu/windows/macos）+ setup-go 缓存 | 本地交叉编译 windows ✓；darwin 需 macOS runner（CI 首跑覆盖） |
+| T1'.1 | `internal/state/gamevm.go`（翻译源=上游 gameVm.ts 322 行，commit 5c04537）：GameVm/GameSnapshot/SerializedGame + **fenHistory 四收口**（初始/newGame/newGameFromFen 重置、executeMove push、undo pop、restore 重放逐手采集含跳脏，长度恒=手数+1）+ agreeDraw/resign 首版即有 + serialize 存起始 FEN+完整着法栈（DR-008）+ **裁决触发内联收口点**（07 §3：`OnHistoryGrow`=executeMove push 侧+restore 完成侧、`OnHistoryRewound`=undo pop+新局） | gameVmFenHistory.spec.ts 7 用例逐条翻译全绿 + 收口点 5 子用例 |
+| T1'.2 | `gamestore.go`（工厂**每局一实例**，铁律 #G4）+ `globalsettings.go`（单例允许，缺省开启/写失败保内存）+ `llmsettings.go`（fromRaw clamp/K15、枚举 index 存档、字段子集保存；键名复用复制物 internal/llm 常量）（commit 2239fd0） | gameStore.spec.ts 19 用例逐条翻译全绿（12 等价集 + 7 扩展 + 订阅桥接）；设置用例全绿 |
+| T1'.3 | internal/app 装配（commit 632dd01 + 复审修正 0a9388e）：**EventBus**（Cancel 后迟到结果按 requestId 丢弃 #G5，空 id 直通，通道满非阻塞丢弃）+ **Router**（主页+7 入口，离开页 `Disposer.Dispose` 挂接 07 §2）+ **生命周期段**（失焦=FocusEvent、关闭=ClosingEvent 可 Abort——v0.10.3 实测口径，07 §2 表已同步修订；minimize 事件源 M2' 核实）+ `ui/theme.go`（Electron global.css :root 色板 + Noto CJK 四件显式注册，poc_palette/placeholder 删除）+ **主页 7 入口**（08 §2：RRect 入口卡+hover+点击导航+全局设置入口）+ 7 入口占位页（可返回主页） | 事件总线 6 用例/路由 5 用例/生命周期 3 用例全绿（09 §4 纯 Go 表驱动） |
 
-## POC 实测数据（回填明细=design_docs/08 §12）
+## M1' 验证门结果
 
-- **动画**：220ms 请求实测 225~235ms（1s 慢速实测 1.003~1.024s），帧时间戳权威；动画期 26~28 FPS（RDP 合成节流）。
-- **长列表**：140,000 局程序化滚动最坏情况 FPS 80；帧开销 avg 680µs / max 1.315ms（预算 16.7ms）。
-- **渲染**：默认=Wayland 后端（运行时选择）；WAYLAND_DISPLAY 失效→X11；软渲染兜底 ✓。
-- **版本锁定**：gioui.org v0.10.3、go-text/typesetting v0.3.5（R-G5 缓解）。
+- gameVmFenHistory/gameStore 翻译用例全绿（上游 26 用例逐条对应，用例名注释保留 spec 对应关系）；
+- 事件总线/装配单测全绿（`go test ./internal/app/ -race`）；
+- 主页可导航（待手测确认）；
+- 质量门：`gofmt -l` 空输出 + `go vet ./...` 0 问题 + `go test ./... -race` 全量通过。
 
-## 验收反馈修复轮（2026-10-06，§6.2 流程：修复→回归→再提交）
+## M1' 复审记录（§6.1 两轮）
 
-用户首轮手测反馈（图1~4）：棋盘/动画项通过；发现 3 项缺陷 + 1 项定论：
+- 第一轮·语义一致性：gamevm.go 与上游 gameVm.ts 逐方法对照（含 undoRound 三段 pop 语义、restore 跳脏条件、resign/agreeDraw 解锁）；修正 executeMove 内联快照→复用 buildSnapshot（终局判定单一出口）；副标题去里程碑术语。
+- 第二轮·缺陷扫描：EventBus mutex 覆盖 cancelled map（Emit/Cancel 任意 goroutine，Drain 单消费者）；新增代码无后台直写 UI/state、无 goroutine 泄漏面、无错误消息泄 Key；-race 全绿。
+- §6.3 铁律自检：#G1 六包无 gio/net-http 新增（vision.go/corpusDownloader.go 为复制物既有口径，#G2 禁动）；#G3 新增代码无后台直写；#G4 无对局全局单例（globalSettings 尚未实例化，M2' 装配）；#G8 ui/state 无网络出口。
+- 07 §2 事件源映射表实测修订（同 commit 632dd01）：`system.Command{CommandClose}` 不存在 → `*app.ClosingEvent`；FocusEvent 字段名为 `Focus`。
 
-1. **【修复】Ctrl+V 粘贴 Windows 中文乱码（KG-004 新建）**：本地复现定位——WSLg 剪贴板桥接把 Windows 文本按 GB18030 双字节语义重解码（"中文粘贴测试"→"涓\ue15f枃绮樿创娴嬭瘯"），且 CJK/ASCII 边界处桥接丢字节不可逆（静默自动反解码方案被否决并留测试固化契约）。落地可靠路径：**"从 Windows 剪贴板粘贴"按钮**（powershell.exe Get-Clipboard 管道，UTF-8 正确；含 /mnt/c 兜底路径），端到端实证 clip.exe→按钮→编辑器完整中文；纯中文段抢救工具 clipboardMojibakeRecover+cp936Pua 表（2068 条生成表）保留但禁止自动应用。
-2. **【定论】Windows 输入法无法输入中文（KG-003 更新）**：用户手测确认——WSLg 下中文键盘输入全路径不可用（X11 无 XIM + Wayland text-input 未被 RDP 桥接）；中文输入口径统一走 KG-004 按钮。
-3. **【留档】窗口标题栏中文 □（KG-005 新建）**：xprop 核实应用侧 `_NET_WM_NAME` 正确，WSLg RDP 标题解码缺陷，不可修，仅观感。
-4. **【留档】`InvalidateCmd{At: 未来时刻}` 不排帧（KG-006 新建）**：两处复现，帧循环一律立即排帧。
-
-回归：gofmt/vet/`go test ./... -race` 全绿（恢复契约用例 4 个：实测样本/正常不误改/垃圾拒绝/混排有损拒绝）。
-
-**复验轮（同日二次反馈"按钮仍乱码"）——两项根因补修**：
-1. powershell.exe stdout 默认按系统 ANSI/OEM 代码页（zh-CN=GBK）编码→WSL 侧按 UTF-8 解读即乱码（复现：直接 Get-Clipboard 输出 `��Windows�и...`；修法：前置 `[Console]::OutputEncoding=UTF8`，复验输出正确）。首轮端到端测试为假阳性——clip.exe 按 GBK 解码 stdin 与 powershell 按 GBK 编码 stdout 恰好互逆。
-2. 同步 exec 从 Gio 主 goroutine 内起 interop 进程挂起（`Cmd.Wait` 永阻塞；shell/纯 Go 探针正常，栈留证）——粘贴改异步：后台 goroutine→`Window.Emit` 通道→主循环 `OnAppEvent`（app 新增 `EventTarget` 页面接口），顺带满足 #G3。
-端到端（Set-Clipboard 正确中文→点按钮→编辑器完整正确中文）与 POC_WINPASTE 自动触发均验证通过。
-
-## 已知问题（新增）
+## 已知问题（累计）
 
 - **KG-002**：gio List.ScrollBy 逐帧程序化滚动 → 文本绘制病理慢路径（黑屏）；规避=直接推进 Position.First，M5' 用手势滚动。
-- **KG-003**：WSLg 下中文键盘输入全路径不可用（X11 无 XIM + Wayland text-input 未被 RDP 桥接，用户验收定论）；中文输入走 KG-004 按钮。
+- **KG-003**：WSLg 下中文键盘输入全路径不可用（用户验收定论）；中文输入走 KG-004 按钮。
 - **KG-004**：WSLg 剪贴板桥接 CJK 乱码且有损；可靠路径=powershell 管道粘贴按钮（已验证），M4' 沿用。
 - **KG-005**：WSLg 窗口标题栏中文 □（WSLg 缺陷，不可修，仅观感）。
 - **KG-006**：gio `InvalidateCmd{At: 未来时刻}` 在 WSLg 不排帧；帧循环一律立即排帧。
-- 详见 docs/KNOWN_ISSUES.md"本仓初始新增条目"表。
+- **KG-007**：复制物 transport 超时测试单核饥饿偶发，CI GOMAXPROCS=2 规避（§6.2 不改复制物）。
+- M1' 新增：无（生命周期 minimize 事件源待 M2' 核实，属任务挂接点非缺陷）。
+- 详见 docs/KNOWN_ISSUES.md。
 
-## 验收结论（2026-10-06，用户确认）
+## M0' 完成清单（存档）
 
-- 通过：棋盘全要素与对照、自动演示、动画帧循环与权威结束、字体回退链、长列表 FPS 80/帧开销 680µs、三路径渲染、CI 三平台全绿；
-- **按钮粘贴中文正常**（复验确认）；Ctrl+V 中文乱码 = KG-004 桥接缺陷既有口径（M4' 起中文输入统一走按钮路径）；
-- 修复轮遗留全部入案：KG-003（中文键盘输入不可用）、KG-004（桥接乱码+按钮可靠路径）、KG-005（标题栏 □）、KG-006（InvalidateCmd{At} 不排帧）、KG-007（transport 超时测试单核饥饿，CI GOMAXPROCS=2 规避）。
+| 任务 | 交付 | 验收结果 |
+|---|---|---|
+| T0'.1 | go.mod 锁版（**gioui.org v0.10.3 + go-text/typesetting v0.3.5**，白名单内）+ main.go 薄入口 + internal/{app,ui,state} 骨架 + 单事件循环（#G3） | X11 弹窗验证 ✓ |
+| T0'.2 | POC-1 棋盘自绘（cmd/poc board） | 与 Electron 参照渲染并排对照一致；无离屏缓存需求 |
+| T0'.3 | POC-2 动画帧循环（cmd/poc anim） | 实测 225~235ms（≤1 帧偏差）；帧时间戳权威 |
+| T0'.4 | POC-3 IME+字体（cmd/poc ime） | XIM 不可用（KG-003）+粘贴兜底可用（KG-004） |
+| T0'.5 | POC-4 长列表（cmd/poc list） | **FPS 80，帧开销 avg 680µs / max 1.315ms**（达标）；KG-002 登记 |
+| T0'.6 | POC-5 WSLg 渲染 | 三路径可用+软渲染兜底；结论入 08 §12 |
+| T0'.7 | ci.yml 三平台矩阵 | 三平台全绿 |
 
-## 请手测清单（M0' 验收门，§5——按顺序执行）
+（M0' POC 实测数据与验收修复轮记录见 git 历史 v0.1.0-m0' 版本的 PROGRESS.md；已知问题累计表见 docs/KNOWN_ISSUES.md。）
+
+## 请手测清单（M1' 验收门，§5——按顺序执行）
 
 > 准备：`export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig"`（建议写入 ~/.bashrc）；
-> 若尚未安装系统依赖：`sudo apt install -y libvulkan-dev libx11-xcb-dev`（装了可不导出该变量）。
+> 中文输入一律走"从 Windows 剪贴板粘贴"路径（KG-003/KG-004 既定口径）；
+> 窗口标题栏中文 □ 为 KG-005 已知，不影响验收。
 
-1. **骨架弹窗（T0'.1）**：`go run .` → 弹出"中国象棋 Ultra（Gio 版）"窗口，显示"M0' 骨架就绪 — 版本 dev"，关闭按钮正常退出。
-2. **POC-1 棋盘（T0'.2）**：`go run ./cmd/poc board`
-   - 棋盘全要素：楚河漢界居中、纵线河界断开、九宫斜线、红黑棋子+汉字（对照 `~/poc_evidence/m0/poc1_compare.png`）；
-   - 交互：点击红炮（b2 位）→ 出现蓝色选中圈+绿点/绿环合法目标 → 点绿点落子 → 黄色 lastMove 双圆；连续对弈几手；点己方另一子改选、再点同子取消；
-   - 右上"切换坐标口径"按钮：ICCS（a-i/0-9）↔ 08 口径（红方一~九右→左/黑方 1~9 左→右）——**请在验收意见中告知 M2' 采用哪种**（08 §3.2 与 Electron 锚点存在口径差异）；
-   - 自动演示参考：`POC_AUTODEMO=1 go run ./cmd/poc board`（1s 炮二平五→2s 选中黑炮，3s 停在终态）。
-3. **POC-2 动画（T0'.3）**：`go run ./cmd/poc anim` → 三场景循环自动演示（炮二平五/黑马8进7/炮五进四吃卒）；点"1000ms 慢速"→ 观察两阶段（飞行中被吃子仍在 → 落定才消失）；**慢速下动画期间快速点击棋盘 → 工具条"吞输入"计数增长**；点"220ms 标准"恢复。
-4. **POC-3 IME+字体（T0'.4，修复后复验）**：`go run ./cmd/poc ime` → 字体回退链四行中文正常渲染；输入框已自动聚焦：
-   - **点"从 Windows 剪贴板粘贴（KG-004 可靠路径）"按钮**（先在 Windows 侧复制任意中文）→ 预期完整中文进入编辑器与"已提交文本"行（修复项回归）；
-   - Ctrl+V 走 WSLg 桥接：ASCII 正常、中文乱码（KG-004 已知，不再作为验收项）；
-   - 窗口标题栏 □ 为 KG-005 已知（应用侧 X 标题正确），不影响验收。
-5. **POC-4 长列表（T0'.5）**：`POC_LIST_AUTOSCROLL=1 go run ./cmd/poc list` → 14 万局列表持续滚动不卡（状态条 FPS/帧开销）；不带该变量再跑 → 鼠标拖拽滚动手感正常。
-6. **POC-5 渲染（T0'.6）**：上一步窗口即 Wayland 路径；`WAYLAND_DISPLAY=none go run ./cmd/poc board` 强制 X11 路径；`LIBGL_ALWAYS_SOFTWARE=1 WAYLAND_DISPLAY=none go run ./cmd/poc board` 软渲染路径——三者窗口均正常即通过。
-7. **CI（T0'.7）**：push 后 GitHub Actions 三平台全绿（首次运行需在 GitHub 仓库开启 Actions）。
+1. **主页（T1'.3）**：`go run .` → 弹出"中国象棋 Ultra（Gio 版）"窗口：
+   - 标题区"中国象棋 Ultra / Gio 全自绘单二进制桌面版"正常渲染（Noto CJK 中文）；
+   - **7 张入口卡**齐全（残局选关/人机对战/人机 LLM/LLM vs LLM/双人对弈/残局工作室/棋谱库），标题+副标题两行居中；
+   - 鼠标悬停入口卡 → 卡片底色加深（hover 高亮）；移出恢复；
+   - 底部"全局设置"按钮可见（M1' 点击仅日志输出，设置弹窗 M2' 落地）。
+2. **导航（T1'.3）**：依次点击 7 张入口卡 → 每次都切换到对应占位页（标题+“本页面将在后续里程碑落地”+“返回主页"按钮）；点"返回主页"回主页；快速连续切换无卡死无崩溃。
+3. **窗口关闭（T1'.3 生命周期段）**：任意页面点标题栏 × → 应用正常退出（终端无 panic）。
+4. **失焦事件通道（T1'.3，观察项）**：应用运行中切换到其他窗口再切回 → 无异常（blur 派发为 M2' 自动保存挂接点，本期仅通道就位，无可见行为）。
+5. **状态层回归（T1'.1/T1'.2，自动）**：`go test ./internal/state/ ./internal/app/ -race -v` → 全部 PASS（gameVmFenHistory 7 例 + 裁决收口 5 例 + gameStore 20 例 + 总线 6 例 + 路由 5 例 + 生命周期 3 例）。
+6. **POC 回归（不改行为）**：`go run ./cmd/poc board` 与 `go run ./cmd/poc anim` → 色板迁移到 theme.go 后渲染与 M0' 验收时一致。
 
-## 下一里程碑（M1'）
+## 下一里程碑（M2'）
 
-验收通过后：全新会话逐字粘贴 design_docs/11 §4.2 启动提示词（gameVm 翻译/fenHistory 四收口/gameStore 工厂/主页 7 入口）。
+验收通过后：全新会话逐字粘贴 design_docs/11 §4.3 启动提示词（storage 接线/自动保存恢复状态机/BoardView 正式版/双人页全量 + UI 裁决接线双人页）。
