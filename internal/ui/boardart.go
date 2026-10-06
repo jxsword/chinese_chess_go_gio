@@ -172,9 +172,10 @@ func DrawPiece(gtx layout.Context, l BoardLayout, p *rules.Piece, cx, cy float32
 	drawCenteredText(gtx, rules.PieceLabel(p), cx, cy, r*boardPieceFontSizeR, sideCol, fontSerifBold)
 }
 
-// DrawPieces 棋子层（boardArt.tsx PiecesLayer；skipFrom 非空时跳过该格——
-// 动画飞行层接管，BoardView 复用）。
-func DrawPieces(gtx layout.Context, l BoardLayout, grid rules.BoardGrid, skipFrom *rules.Position) {
+// DrawPieces 棋子层（boardArt.tsx PiecesLayer；skipFrom/skipTo 非空时跳过
+// 该格——动画飞行层接管，BoardView 复用：skipFrom=点击路径飞行起点、
+// skipTo=已落盘走法视觉飞行终点）。
+func DrawPieces(gtx layout.Context, l BoardLayout, grid rules.BoardGrid, skipFrom, skipTo *rules.Position) {
 	for r := 0; r < 10; r++ {
 		for c := 0; c < 9; c++ {
 			p := grid[r][c]
@@ -182,6 +183,9 @@ func DrawPieces(gtx layout.Context, l BoardLayout, grid rules.BoardGrid, skipFro
 				continue
 			}
 			if skipFrom != nil && skipFrom.Col == c && skipFrom.Row == r {
+				continue
+			}
+			if skipTo != nil && skipTo.Col == c && skipTo.Row == r {
 				continue
 			}
 			x, y := OffsetOf(l, c, r)

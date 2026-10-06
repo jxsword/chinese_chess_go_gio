@@ -194,7 +194,7 @@ func (p *PocAnim) layoutBoard(gtx layout.Context) layout.Dimensions {
 	}
 	DrawBoardArt(gtx, l, false)
 	DrawHighlights(gtx, l, &BoardState{Grid: p.grid, LastMove: lastMove})
-	DrawPieces(gtx, l, p.grid, skipFrom)
+	DrawPieces(gtx, l, p.grid, skipFrom, nil)
 	if p.anim.active {
 		t, _ := animProgress(p.anim.start, gtx.Now, p.duration)
 		e := easeOutCubic(t)

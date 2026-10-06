@@ -64,3 +64,37 @@ func TestBoardViewCancelAnimAborts(t *testing.T) {
 		t.Fatal("动画作废后起点棋子应保持原位")
 	}
 }
+
+// T3'.2：已落盘走法的视觉飞行层——AnimateMoveVisual 置 vis（终点棋子），
+// CancelAnim 一并作废；不改变状态层（历史/盘面不变）。
+func TestBoardViewAnimateMoveVisual(t *testing.T) {
+	store := state.NewGameStore(state.GameStoreConfig{Mode: state.ModeHumanVsAi})
+	bv := NewBoardView(store)
+
+	m := rules.Move{From: rules.Pos(7, 7), To: rules.Pos(7, 4)}
+	if !store.VM.PlayMove(m.From, m.To) {
+		t.Fatal("预先落盘应成功")
+	}
+	bv.AnimateMoveVisual(m)
+	if !bv.vis.active {
+		t.Fatal("应启动视觉飞行层")
+	}
+	if bv.vis.piece == nil || bv.vis.piece.Kind != rules.Cannon {
+		t.Fatalf("飞行棋子应为终点处的炮: %+v", bv.vis.piece)
+	}
+	history := len(store.State().MoveHistory)
+	bv.CancelAnim()
+	if bv.vis.active {
+		t.Fatal("CancelAnim 应作废视觉飞行层")
+	}
+	if len(store.State().MoveHistory) != history {
+		t.Fatal("视觉飞行层不改变状态层")
+	}
+	// 终点无子（防御路径）：不 panic、不置位
+	store2 := state.NewGameStore(state.GameStoreConfig{Mode: state.ModeHumanVsAi})
+	bv2 := NewBoardView(store2)
+	bv2.AnimateMoveVisual(rules.Move{From: rules.Pos(7, 7), To: rules.Pos(7, 4)})
+	if bv2.vis.active {
+		t.Fatal("终点无子不应启动视觉飞行层")
+	}
+}

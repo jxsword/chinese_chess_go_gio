@@ -215,8 +215,19 @@ func Run(cfg Config) error {
 			},
 		})
 	})
-	// 其余 6 入口页 M3' 起逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsAi, RouteHumanVsLlm, RouteLlmVsLlm, RouteStudio, RouteCorpus} {
+	// 人机对战页（T3'.2）：工厂页 + 引擎 Runner 直调（03 消费方式注记：结果经
+	// 事件总线回主循环，requestId 取消与迟到丢弃语义不变）。
+	w.Router().RegisterFactory(RouteHumanVsAi, func() ui.Page {
+		return ui.NewHumanVsAiPage(w.gameEnv(), ui.HumanVsAiHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+		})
+	})
+	// 其余 5 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteEndgameSelect, RouteHumanVsLlm, RouteLlmVsLlm, RouteStudio, RouteCorpus} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),

@@ -70,6 +70,15 @@ type BoardView struct {
 		start         time.Time
 		historyBefore int // 动画起点历史长度（OnMoved 增长守卫，board_widget.dart:96）
 	}
+
+	// vis 已落盘走法的纯视觉飞行层（AI/LLM 应手：状态即时落盘后补 220ms
+	// 飞行呈现，等价上游 CSS transition；不改落子时序、不吞输入）。
+	vis struct {
+		active bool
+		move   rules.Move
+		piece  *rules.Piece
+		start  time.Time
+	}
 }
 
 // NewBoardView 创建棋盘组件（绑定对局 store）。
@@ -77,11 +86,29 @@ func NewBoardView(store *state.GameStore) *BoardView {
 	return &BoardView{store: store}
 }
 
-// CancelAnim 作废进行中的动画（不落子）——悔棋/新局/离页时调用（08 §4，#4）。
-func (b *BoardView) CancelAnim() { b.anim.active = false }
+// CancelAnim 作废进行中的动画（不落子）——悔棋/新局/离页时调用（08 §4，#4）；
+// 同时作废已落盘走法的视觉飞行层（状态层已由页面回退）。
+func (b *BoardView) CancelAnim() {
+	b.anim.active = false
+	b.vis.active = false
+}
 
 // Animating 动画是否进行中（页面禁手判定用，#1）。
 func (b *BoardView) Animating() bool { return b.anim.active }
+
+// AnimateMoveVisual 已落盘走法的纯视觉飞行层（AI/LLM 应手：vm.PlayMove 落盘
+// 后调用，终点棋子飞行 220ms，等价上游 CSS transition 的呈现层补齐——状态
+// 时序不变、不吞输入，08 §5 人机页注记）。帧循环由 Layout 内 vis 检查排帧。
+func (b *BoardView) AnimateMoveVisual(m rules.Move) {
+	piece := b.store.VM.Board().PieceAtP(m.To) // 已落盘，取终点棋子
+	if piece == nil {
+		return
+	}
+	b.vis.active = true
+	b.vis.move = m
+	b.vis.piece = piece
+	b.vis.start = time.Now()
+}
 
 // Layout 一帧：处理点击 → 推进动画 → 绘制（静态层/高亮层/棋子层/飞行层）。
 func (b *BoardView) Layout(gtx layout.Context) layout.Dimensions {
@@ -110,10 +137,11 @@ func (b *BoardView) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	b.runAnim(gtx)
+	b.runVisual(gtx)
 	b.draw(gtx, l)
 
 	// 动画进行中 → 持续排帧（帧循环，08 §4）。
-	if b.anim.active {
+	if b.anim.active || b.vis.active {
 		gtx.Execute(op.InvalidateCmd{})
 	}
 	return layout.Dimensions{Size: gtx.Constraints.Max}
@@ -168,6 +196,17 @@ func (b *BoardView) runAnim(gtx layout.Context) {
 	}
 }
 
+// runVisual 视觉飞行层推进：t≥1 帧时间戳权威结束（状态层已落盘，仅作废呈现）。
+func (b *BoardView) runVisual(gtx layout.Context) {
+	if !b.vis.active {
+		return
+	}
+	if _, done := animProgress(b.vis.start, gtx.Now, moveAnimDuration); done {
+		b.vis.active = false
+		b.vis.piece = nil
+	}
+}
+
 // draw 三层绘制（boardArt.tsx 自底向上）+ 飞行棋子层。
 func (b *BoardView) draw(gtx layout.Context, l BoardLayout) {
 	snap := b.store.State()
@@ -181,6 +220,10 @@ func (b *BoardView) draw(gtx layout.Context, l BoardLayout) {
 	if b.anim.active {
 		skipFrom = &b.anim.move.From // 飞行棋子 layer 接管（board_painter.dart:266-270）
 	}
+	skipTo := (*rules.Position)(nil)
+	if b.vis.active {
+		skipTo = &b.vis.move.To // 已落盘棋子由视觉飞行层接管
+	}
 	// 高亮层随快照实时绘制（动画期间选中/目标高亮保持显示，上游同款）
 	state := BoardState{
 		Grid:         grid,
@@ -190,7 +233,7 @@ func (b *BoardView) draw(gtx layout.Context, l BoardLayout) {
 		CheckKingPos: checkKingPos(grid, snap),
 	}
 	DrawHighlights(gtx, l, &state)
-	DrawPieces(gtx, l, grid, skipFrom)
+	DrawPieces(gtx, l, grid, skipFrom, skipTo)
 
 	// 飞行棋子层（动画期间渲染，忽略指针）：easeOutCubic 插值。
 	if b.anim.active && b.anim.piece != nil {
@@ -199,6 +242,14 @@ func (b *BoardView) draw(gtx layout.Context, l BoardLayout) {
 		x1, y1 := OffsetOf(l, b.anim.move.From.Col, b.anim.move.From.Row)
 		x2, y2 := OffsetOf(l, b.anim.move.To.Col, b.anim.move.To.Row)
 		DrawPiece(gtx, l, b.anim.piece, x1+(x2-x1)*e, y1+(y2-y1)*e)
+	}
+	// 视觉飞行层（已落盘走法）：easeOutCubic 插值（起点→终点）。
+	if b.vis.active && b.vis.piece != nil {
+		t, _ := animProgress(b.vis.start, gtx.Now, moveAnimDuration)
+		e := easeOutCubic(t)
+		x1, y1 := OffsetOf(l, b.vis.move.From.Col, b.vis.move.From.Row)
+		x2, y2 := OffsetOf(l, b.vis.move.To.Col, b.vis.move.To.Row)
+		DrawPiece(gtx, l, b.vis.piece, x1+(x2-x1)*e, y1+(y2-y1)*e)
 	}
 }
 

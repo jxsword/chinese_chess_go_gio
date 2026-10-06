@@ -123,7 +123,7 @@ func (p *PocBoard) layoutBoard(gtx layout.Context) layout.Dimensions {
 	}
 	DrawBoardArt(gtx, l, p.coord08)
 	DrawHighlights(gtx, l, &state)
-	DrawPieces(gtx, l, state.Grid, nil)
+	DrawPieces(gtx, l, state.Grid, nil, nil)
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
