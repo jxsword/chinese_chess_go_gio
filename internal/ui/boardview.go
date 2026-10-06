@@ -181,17 +181,12 @@ func (b *BoardView) draw(gtx layout.Context, l BoardLayout) {
 	if b.anim.active {
 		skipFrom = &b.anim.move.From // 飞行棋子 layer 接管（board_painter.dart:266-270）
 	}
-	lastMove := snap.LastMove
-	selected := snap.Selected
-	var targets []rules.Position
-	if !b.anim.active {
-		targets = snap.LegalTargets
-	}
+	// 高亮层随快照实时绘制（动画期间选中/目标高亮保持显示，上游同款）
 	state := BoardState{
 		Grid:         grid,
-		LastMove:     lastMove,
-		Selected:     selected,
-		LegalTargets: targets,
+		LastMove:     snap.LastMove,
+		Selected:     snap.Selected,
+		LegalTargets: snap.LegalTargets,
 		CheckKingPos: checkKingPos(grid, snap),
 	}
 	DrawHighlights(gtx, l, &state)

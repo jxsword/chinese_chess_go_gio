@@ -35,9 +35,11 @@ func NewRepetitionJudge(vm *state.GameVm, isHuman func(side rules.Side) bool, sh
 	return &RepetitionJudge{vm: vm, isHuman: isHuman, showToast: showToast}
 }
 
-// OnHistoryGrow 历史增长裁决（挂 vm.OnHistoryGrow；fenHistory=完整局面序列）。
+// OnHistoryGrow 历史增长裁决（挂 vm.OnHistoryGrow；fenHistory=完整局面序列，
+// 长度=手数+1）。上游门槛 historyLen<2 不裁决（useRepetitionJudge.ts），
+// 对应 fenHistory<3。
 func (j *RepetitionJudge) OnHistoryGrow(fenHistory []string) {
-	if len(fenHistory) < 2 {
+	if len(fenHistory) < 3 {
 		return
 	}
 	verdict := rules.JudgeRepetition(fenHistory)

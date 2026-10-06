@@ -82,7 +82,7 @@ func NewHumanVsHumanPage(env GameEnv, hooks HumanVsHumanHooks) *HumanVsHumanPage
 		p.restoreID = "restore-test"
 	}
 	p.canSave = func() bool { return true } // M2' 无棋谱续战来源
-	p.board.Blocked = func() bool { return p.confirmingNewGame || p.judge != nil && p.judge.DrawOffer != nil }
+	p.board.Blocked = func() bool { return p.modalOpen() }
 
 	// 重复裁决接线（08 §3.5：双方均为玩家，三次重复判和弹确认框）
 	p.judge = NewRepetitionJudge(store.VM, func(rules.Side) bool { return true }, p.showToast)
@@ -231,6 +231,15 @@ func (p *HumanVsHumanPage) Dispose() {
 // ---- 交互 ----
 
 func (p *HumanVsHumanPage) handleEvents(gtx layout.Context) {
+	// 弹窗打开：遮罩拦截页面级交互（上游 .cc-dialog-mask 全屏阻断）——
+	// 仅消费本帧点击边沿，避免遮罩下的按钮被穿透触发。
+	if p.modalOpen() {
+		p.backBtn.Clicked(gtx)
+		p.newGameBtn.Clicked(gtx)
+		p.undoBtn.Clicked(gtx)
+		p.saveBtn.Clicked(gtx)
+		return
+	}
 	if p.backBtn.Clicked(gtx) && p.hooks.OnBack != nil {
 		p.hooks.OnBack()
 	}
@@ -243,6 +252,11 @@ func (p *HumanVsHumanPage) handleEvents(gtx layout.Context) {
 	if p.saveBtn.Clicked(gtx) {
 		p.saveGame()
 	}
+}
+
+// modalOpen 任一模态弹窗打开中。
+func (p *HumanVsHumanPage) modalOpen() bool {
+	return p.confirmingNewGame || (p.judge != nil && p.judge.DrawOffer != nil)
 }
 
 // cancelPendingRestore 取消在途恢复并解锁（新局/悔棋在恢复回执前发起的路径）。
