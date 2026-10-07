@@ -9,14 +9,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"gioui.org/unit"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/app"
 	"github.com/jxsword/chinese_chess_go_gio/internal/parsers"
+	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 	"github.com/jxsword/chinese_chess_go_gio/internal/ui"
 )
@@ -27,6 +31,10 @@ func main() {
 	}
 	if os.Args[1] == "corpus" {
 		demoCorpus()
+		return
+	}
+	if os.Args[1] == "records" {
+		demoRecords()
 		return
 	}
 	page, title := demo(os.Args[1])
@@ -42,6 +50,69 @@ func main() {
 		fmt.Fprintln(os.Stderr, "poc:", err)
 		os.Exit(1)
 	}
+}
+
+// demoRecords M5' 记录库页渲染冒烟（POC 专用）：内嵌一条对局 + 一条残局
+//（多解）验证列表/详情/线路切换/启动器渲染。
+func demoRecords() {
+	w := app.OpenWindow(app.WindowConfig{Title: "M5' records", Width: unit.Dp(1024), Height: unit.Dp(768)})
+	seq := 0
+	repo := &recordsFakeRepo{w: w, seq: &seq, data: recordsSample()}
+	page := ui.NewRecordLibraryPage(ui.GameEnv{
+		Records:      repo,
+		Emit:         func(id string, payload any, err error) { w.Emit(app.AppEvent{RequestID: id, Payload: payload, Err: err}) },
+		Cancel:       w.Cancel,
+		NewRequestID: func(prefix string) string { seq++; return fmt.Sprintf("%s-%d", prefix, seq) },
+	}, ui.RecordLibraryHooks{})
+	if err := w.Run(page); err != nil {
+		fmt.Fprintln(os.Stderr, "poc:", err)
+		os.Exit(1)
+	}
+}
+
+// recordsFakeRepo 内嵌样例记录（同步结算 goroutine——回执经 w.Emit）。
+type recordsFakeRepo struct {
+	w    *app.Window
+	seq  *int
+	data []storage.GameRecord
+}
+
+func (r *recordsFakeRepo) emit(id string, payload any) {
+	go func() { r.w.Emit(app.AppEvent{RequestID: id, Payload: payload}) }()
+}
+
+func (r *recordsFakeRepo) RecordsListAsync(requestID string) {
+	out := make([]storage.GameRecordSummary, 0, len(r.data))
+	for i := range r.data {
+		d := &r.data[i]
+		solved := "solved"
+		if d.Mode == "humanVsHuman" {
+			solved = "none"
+		}
+		out = append(out, storage.GameRecordSummary{ID: d.ID, Title: d.Title, Mode: d.Mode, Result: d.Result, SolveStatus: &solved, CreatedAt: d.CreatedAt})
+	}
+	r.emit(requestID, ui.RecordsListDone{Records: out})
+}
+
+func (r *recordsFakeRepo) RecordsGetAsync(requestID string, id int64) {
+	for i := range r.data {
+		if r.data[i].ID == id {
+			r.emit(requestID, ui.RecordGetDone{Record: &r.data[i]})
+			return
+		}
+	}
+	r.emit(requestID, ui.RecordGetDone{Err: errors.New("missing")})
+}
+
+func (r *recordsFakeRepo) RecordsSaveAsync(requestID string, record state.GameRecordData) {}
+func (r *recordsFakeRepo) RecordsDeleteAsync(requestID string, id int64) {
+	for i := range r.data {
+		if r.data[i].ID == id {
+			r.data = append(r.data[:i], r.data[i+1:]...)
+			break
+		}
+	}
+	r.emit(requestID, ui.RecordDeleteDone{})
 }
 
 // demoCorpus M5' 语料库页渲染冒烟（POC 专用，正式页面走 go run .）：
@@ -130,5 +201,21 @@ func demo(name string) (ui.Page, string) {
 		return ui.NewPocList(), "POC-4 长列表虚拟化（14 万局）"
 	default:
 		return nil, ""
+	}
+}
+
+// recordsSample 样例记录（对局 2 着 + 残局双解）。
+func recordsSample() []storage.GameRecord {
+	gameMoves := []storage.RecordMove{
+		{F: [2]int{7, 7}, T: [2]int{4, 7}, P: "C"},
+		{F: [2]int{7, 0}, T: [2]int{6, 2}, P: "c"},
+	}
+	solved := "solved"
+	var result *string
+	return []storage.GameRecord{
+		{ID: 1, Title: "2026-10-07 双人对弈", Mode: "humanVsHuman", InitialFen: rules.FENInitial,
+			Moves: gameMoves, Result: result, SolveStatus: nil, Solutions: []any{}, CreatedAt: time.Now().UnixMilli()},
+		{ID: 2, Title: "残局演示（双解）", Mode: "endgame", InitialFen: "3k5/9/9/9/9/9/9/9/9/4K4 w - - 0 1",
+			SolveStatus: &solved, Solutions: []any{[]any{"e0e1"}, []any{"e0d0", "e9d9"}}, CreatedAt: time.Now().UnixMilli()},
 	}
 }

@@ -5,6 +5,7 @@ package state
 // 纯 Go：仅依赖规则内核（铁律 #G1）。
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -327,11 +328,17 @@ func RecordDataToStorage(d GameRecordData) storage.GameRecord {
 func RecordDataFromStorage(r *storage.GameRecord) GameRecordData {
 	moves := make([]rules.Move, 0, len(r.Moves))
 	for i := range r.Moves {
-		m := storage.DecodeRecordMove(map[string]any{
-			"f": r.Moves[i].F, "t": r.Moves[i].T,
-			"p": r.Moves[i].P, "x": r.Moves[i].X,
-		})
-		if m != nil {
+		// JSON 往返后走 DecodeRecordMove（与 recordFromRow 同解码路径——
+		// coordPair 仅识别 JSON 形状的 []any 坐标）。
+		raw, err := json.Marshal(r.Moves[i])
+		if err != nil {
+			continue
+		}
+		var anyForm any
+		if err := json.Unmarshal(raw, &anyForm); err != nil {
+			continue
+		}
+		if m := storage.DecodeRecordMove(anyForm); m != nil {
 			moves = append(moves, *m)
 		}
 	}

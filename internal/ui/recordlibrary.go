@@ -486,8 +486,12 @@ func (p *RecordLibraryPage) Layout(gtx layout.Context) layout.Dimensions {
 func (p *RecordLibraryPage) layoutHeader(gtx layout.Context) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		row := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}
+		back := &p.backBtn // 列表：返回主页
+		if p.detail != nil {
+			back = &p.detailBackBtn // 详情：回列表（上游 navigate(-1) 语义）
+		}
 		children := []layout.FlexChild{
-			layout.Rigid(p.simpleButton(&p.backBtn, "返回", false)),
+			layout.Rigid(p.simpleButton(back, "返回", false)),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				title := "棋谱库"
 				if p.detail != nil {
@@ -585,6 +589,7 @@ func (p *RecordLibraryPage) layoutRow(gtx layout.Context, summary storage.GameRe
 		state.ModeLabelOf(summary.Mode), dateText(summary.CreatedAt),
 		map[bool]string{true: "残局", false: "对局"}[isEndgame], status)
 	return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X // 行卡铺满容器宽
 		defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(8))).Push(gtx.Ops).Pop()
 		paint.Fill(gtx.Ops, ThemeSurfaceDim)
 		return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -751,7 +756,7 @@ func (p *RecordLibraryPage) layoutInfoCard(gtx layout.Context) layout.Dimensions
 	for len(p.lineSolBtns) < len(solutions) {
 		p.lineSolBtns = append(p.lineSolBtns, widget.Clickable{})
 	}
-	w := gtx.Dp(unit.Dp(300))
+	w := gtx.Dp(unit.Dp(360)) // 300dp 下解法 chips 换行裁切（M3'/M4' 同类教训）
 	return layout.Inset{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = w
 		gtx.Constraints.Max.X = w
