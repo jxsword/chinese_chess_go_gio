@@ -74,6 +74,30 @@
 - 影响：08 §5（人机页注记）、ui/humanvsai.go（triggerAiMove/onAiMoveDone）、
   humanvsai_test.go（延迟应用/延迟期取消两用例）；引擎与协议零改动。
 
+## DR-G005 Windows 打包形态：基线裸 exe，NSIS 候选挂起待裁（2026-10-07，T7'.2）
+
+- 背景：10 §4 预置两候选，M7' 定案。Gio Windows 后端为纯 Go（无 WebView2/cgo 依赖），
+  裸 exe 即可双击运行——与上游 Wails 版（需 WebView2 Loader 运行时，NSIS 有真实安装价值）
+  的前提不同。用户在 T7'.2 启动时明确："Windows 基线裸 exe（NSIS 候选由我裁决）"。
+- 选项：
+  - A. 裸 exe + 使用说明——优点：零工具链依赖（release.yml 无 choco/NSIS 环节，少一个
+    失败面）、产物最透明（一个文件即全部）、Gio 无运行时前置使安装包价值大减 / 缺点：
+    无开始菜单快捷方式、无卸载器、SmartScreen 未签名提示需用户手动放行 / 代价：无
+  - B. NSIS 安装包（wails 版同构：choco install nsis + 显式写 GITHUB_PATH，踩坑点①）——
+    优点：开始菜单/卸载器/安装目录选择，观感正式 / 缺点：CI 增加 choco 外呼与 makensis
+    环节（上游 5 轮迭代中 NSIS 相关为最脆一环）；Gio 版无 WebView2 前置，安装器不解决
+    任何真实依赖 / 代价：release.yml 维护面 +1，构建时长 +1~2min
+  - C. 两者都出（exe + setup.exe）——优点：用户自选 / 缺点：资产名单翻倍、自校验与
+    使用说明双份维护 / 代价：最高
+- 结论：T7'.2 落地 A 为基线（release.yml Windows 产物=单 exe，使用说明见 build/README.md）；
+  B 作为候选项保留全部吸收要点（choco install nsis --no-progress + Add-Content
+  GITHUB_PATH，注释已内嵌 release.yml Windows 段），**是否升级 B 由用户验收时裁决**——
+  裁决升级时仅增 Windows 打包步与资产名单两项，其余矩阵不动。
+- 理由：Gio 单二进制使安装器的传统价值（解决运行时依赖）消失；A 的缺点均为观感级且
+  有使用说明兜底；B 的成本是永久性 CI 复杂度。C 在无真实依赖差异的前提下纯属冗余。
+- 影响：release.yml（Windows 段）、build/README.md（使用说明）、Draft Release 资产名单
+  （5 项口径）；若用户裁决升级 B，需同步 10 §4 与本条。
+
 ## 附：沿用上游不做重裁的决策清单
 
 | 上游-DR | 主题 | 本仓沿用方式 |

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=中国象棋 Ultra
+Comment=中国象棋桌面应用——Flutter 版 ChineseChessUltra 的 Gio 全自绘单二进制重写
+Exec=chinese-chess-ultra-gio
+Icon=chinese-chess-ultra-gio
+Categories=Game;BoardGame;
+Terminal=false
+StartupWMClass=chinese-chess-ultra-gio

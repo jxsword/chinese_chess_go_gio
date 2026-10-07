@@ -1,0 +1,253 @@
+# release.yml（T7'.2，design_docs/10 §4 定案；上游 release.yml 5 轮迭代踩坑点逐条吸收，见 10 §4 吸收清单）：
+#   tag v* 触发 → 三平台矩阵 lint+test+build → 冒烟 → artifact → 汇总上传 GitHub Draft Release。
+# 产物矩阵（单二进制为基线，Gio 核心优势）：
+#   Linux   deb（nfpm）+ AppImage（linuxdeploy）+ 裸二进制 tar.gz 兜底
+#   Windows 裸 exe 基线（10 §4 候选 A；NSIS 候选 B 若启用，踩坑点①：前置
+#           `choco install nsis -y --no-progress` + `Add-Content $env:GITHUB_PATH
+#           "C:\Program Files (x86)\NSIS\Bin"`——choco 写的系统 PATH 对已启动 job 不可见）
+#   macOS   universal（x64+arm64 lipo）.app 手工组装 → dmg（hdiutil UDZO）
+# 缓存：go-build 与模块缓存由 setup-go 内建（key 随 go.sum 失效）；nfpm 按 NFPM_VERSION 缓存。
+# 工具全部不进 go.mod（依赖白名单哲学，上游-DR-010 同构）。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # gh release 上传 Draft Release 所需
+
+env:
+  NFPM_VERSION: v2.41.1
+  APP_NAME: chinese-chess-ultra-gio
+
+jobs:
+  build:
+    name: ${{ matrix.os }} 打包
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+          - os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true # ~/.cache/go-build + ~/go/pkg/mod，key 随 go.sum 失效
+
+      # ---- Linux 构建依赖（ci.yml 同口径，M0' POC-5 实测：vulkan 头 + X11-xcb 头）----
+      - name: Install Gio cgo deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-xcb-dev libvulkan-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libegl-dev libx11-dev libxcursor-dev libxfixes-dev
+
+      # ---- 质量门（gofmt 跨平台确定，跑 Linux 一份即可）----
+      - name: Lint (gofmt + go vet)
+        if: runner.os == 'Linux'
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+      - name: Vet
+        if: runner.os != 'Linux'
+        run: go vet ./...
+
+      # -race 全平台无例外（上游-DR-012，踩坑点⑤；windows runner 预装 MinGW 可跑）。
+      # GOMAXPROCS=2：KG-007 单核饥饿规避（与 ci.yml 同口径）。
+      - name: Go test (-race)
+        env:
+          GOMAXPROCS: "2"
+        run: go test ./... -race
+
+      # ---- 构建（-trimpath + ldflags 注入版本，main.version）----
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        env:
+          VER: ${{ github.ref_name }}
+        run: go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/chinese-chess-ultra-gio .
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/chinese-chess-ultra-gio.exe .
+      - name: Build (macOS universal)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          # Gio macOS 需 cgo（Metal），不能一次交叉出 universal：本机双架构 + lipo。
+          go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-amd64 .
+          GOARCH=arm64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-arm64 .
+          lipo -create -output build/bin/chinese-chess-ultra-gio build/bin/gio-amd64 build/bin/gio-arm64
+
+      # ---- 启动冒烟（验证门：三平台产物 CI 冒烟可启动，09 §7 构建门）----
+      # 判据 = 进程存活满 10s（GUI 应用无 stdout 协议面，存活即"可启动"）。
+      - name: Smoke (Linux, xvfb + lavapipe 软渲染)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          set +e
+          # 显式 24bit 屏 + 软渲染（POC-5 兜底口径）：xvfb 默认 8bit 屏深会导致 GL/EGL 初始化失败假阴性。
+          LIBGL_ALWAYS_SOFTWARE=1 timeout 10 xvfb-run -a -s "-screen 0 1280x1024x24" ./build/bin/chinese-chess-ultra-gio
+          code=$?
+          set -e
+          # 124 = 存活满 10s 被 timeout 结束（启动成功）；其余退出码 = 冒烟失败。
+          [ "$code" -eq 124 ] || { echo "smoke 失败：异常退出 code=$code"; exit 1; }
+          echo "smoke 通过：存活满 10s（timeout 124）"
+      - name: Smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/bin/chinese-chess-ultra-gio.exe" -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { throw "smoke 失败：进程 10s 内退出 exit=$($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "smoke 通过：存活满 10s"
+      - name: Smoke (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # .app 打包前直接冒烟裸二进制；打包后再冒烟 .app 结构（见 Package dmg 步骤）。
+          ./build/bin/chinese-chess-ultra-gio & PID=$!
+          sleep 10
+          if ! kill -0 $PID 2>/dev/null; then echo "smoke 失败：进程 10s 内退出"; exit 1; fi
+          kill $PID
+          echo "smoke 通过：存活满 10s"
+
+      # ---- 平台打包 ----
+      - name: Cache nfpm (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/nfpm
+          key: nfpm-${{ env.NFPM_VERSION }}
+      - name: Install nfpm (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          [ -x ~/go/bin/nfpm ] || go install github.com/goreleaser/nfpm/v2/cmd/nfpm@${{ env.NFPM_VERSION }}
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Package deb + AppImage + tar.gz (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          ~/go/bin/nfpm package -f build/nfpm.yaml -p deb \
+            -t "build/bin/${APP_NAME}_${VER_NUM}_amd64.deb"
+          ./build/linux/build-appimage.sh "$VER_NUM"
+          tar -czf "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz" -C build/bin chinese-chess-ultra-gio
+      - name: Rename exe (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          cp build/bin/chinese-chess-ultra-gio.exe "build/bin/${APP_NAME}-${VER_NUM}-windows-amd64.exe"
+      - name: Package .app + dmg (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          # icns：sips 缩放 iconset 十档 → iconutil 打包（macOS runner 自带两工具）。
+          ICONSET=build/bin/icon.iconset; mkdir -p "$ICONSET"
+          for spec in "16 icon_16x16" "32 icon_16x16@2x" "32 icon_32x32" "64 icon_32x32@2x" \
+                      "128 icon_128x128" "256 icon_128x128@2x" "256 icon_256x256" "512 icon_256x256@2x" \
+                      "512 icon_512x512" "1024 icon_512x512@2x"; do
+            set -- $spec
+            sips -z "$1" "$1" build/appicon.png --out "$ICONSET/$2.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o build/bin/iconfile.icns
+          # .app 手工组装（10 §4：Gio 版无 wails 模板，静态 Info.plist）。
+          APP_BUNDLE="build/bin/${APP_NAME}.app"
+          mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+          cp build/bin/chinese-chess-ultra-gio "$APP_BUNDLE/Contents/MacOS/"
+          cp build/darwin/Info.plist "$APP_BUNDLE/Contents/Info.plist"
+          cp build/bin/iconfile.icns "$APP_BUNDLE/Contents/Resources/iconfile.icns"
+          codesign --force -s - "$APP_BUNDLE"   # ad-hoc 签名（无开发者证书基线）
+          # 冒烟 .app 结构（取 bundle 内真实可执行文件路径，glob 不写死绝对路径——踩坑点②口径）。
+          EXE="$APP_BUNDLE/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_BUNDLE/Contents/Info.plist")"
+          "$EXE" & PID=$!
+          sleep 10
+          if ! kill -0 $PID 2>/dev/null; then echo "smoke 失败：.app 内进程 10s 内退出"; exit 1; fi
+          kill $PID
+          hdiutil create -volname "中国象棋 Ultra" \
+            -srcfolder "$APP_BUNDLE" \
+            -ov -format UDZO "build/bin/${APP_NAME}-${VER_NUM}-macos-universal.dmg"
+
+      # ---- artifact：汇总 job 收集上传 Draft Release ----
+      - name: Collect artifacts
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            Linux)
+              cp "build/bin/${APP_NAME}_${VER_NUM}_amd64.deb" dist/
+              cp "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.AppImage" dist/
+              cp "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz" dist/
+              ;;
+            Windows)
+              cp "build/bin/${APP_NAME}-${VER_NUM}-windows-amd64.exe" dist/
+              ;;
+            macOS)
+              cp "build/bin/${APP_NAME}-${VER_NUM}-macos-universal.dmg" dist/
+              ;;
+          esac
+          ls -la dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    name: 汇总上传 Draft Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # gh release create 需要 git 上下文解析 tag——无 checkout 时 API 侧可能拿不到
+      # 刚推送的 ref，产生 untagged-<hash> 幽灵 draft（上游第 4 轮实证，踩坑点③）。
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload GitHub Draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ github.ref_name }}
+        run: |
+          gh release create "$VER" --draft \
+            --title "中国象棋 Ultra（Gio 版）${VER}" --generate-notes dist/*
+      # 创建后立即自校验：draft 存在且资产名单与预期逐一致（踩坑点④——
+      # 上游只打印名单，此处升级为强断言，缺失/多余资产当场失败）。
+      - name: Verify Draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          EXPECTED=$(printf '%s' \
+            "${APP_NAME}_${VER_NUM}_amd64.deb," \
+            "${APP_NAME}-${VER_NUM}-linux-amd64.AppImage," \
+            "${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz," \
+            "${APP_NAME}-${VER_NUM}-windows-amd64.exe," \
+            "${APP_NAME}-${VER_NUM}-macos-universal.dmg")
+          ACTUAL=$(gh release view "$VER" --json isDraft,assets \
+            --jq '[.isDraft] + ([.assets[].name] | sort) | @csv')
+          echo "draft/资产实际：$ACTUAL"
+          echo "资产预期：    $EXPECTED"
+          test "$(gh release view "$VER" --json isDraft --jq .isDraft)" = "true"
+          ASSETS=$(gh release view "$VER" --json assets --jq '[.assets[].name] | sort | join(",")')
+          test "$ASSETS" = "$EXPECTED" || { echo "资产名单与预期不一致"; exit 1; }
+          echo "自校验通过：draft=true，5 项资产逐一致"

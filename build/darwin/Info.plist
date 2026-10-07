@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- .app bundle 手工组装用静态 Info.plist（10 文档 §4：Gio 版无模板引擎，CI 直接拷贝）。
+     CFBundleExecutable 与 release.yml 中 go build 产物名一致。 -->
+<plist version="1.0">
+    <dict>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleName</key>
+        <string>中国象棋 Ultra</string>
+        <key>CFBundleDisplayName</key>
+        <string>中国象棋 Ultra</string>
+        <key>CFBundleExecutable</key>
+        <string>chinese-chess-ultra-gio</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.jxsword.chinese-chess-ultra-gio</string>
+        <key>CFBundleVersion</key>
+        <string>1.0.0</string>
+        <key>CFBundleShortVersionString</key>
+        <string>1.0.0</string>
+        <key>CFBundleIconFile</key>
+        <string>iconfile</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>10.15.0</string>
+        <key>NSHighResolutionCapable</key>
+        <string>true</string>
+        <key>NSHumanReadableCopyright</key>
+        <string>MIT License</string>
+    </dict>
+</plist>

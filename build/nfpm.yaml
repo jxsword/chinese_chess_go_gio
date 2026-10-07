@@ -1,0 +1,26 @@
+# nfpm deb 打包配置（10 文档 §4 定案：Linux 用 nfpm 产 deb；上游 build/nfpm.yaml 同构复用）。
+# 用法：go build 后执行
+#   nfpm package -f build/nfpm.yaml -p deb -t build/bin/chinese-chess-ultra-gio_<ver>_amd64.deb
+# version 与发布 tag 同源；发布文件名的版本号由 CI 注入（-t 覆盖）。
+name: chinese-chess-ultra-gio
+arch: amd64
+platform: linux
+version: 1.0.0
+section: games
+priority: optional
+maintainer: juejian <2301879213@qq.com>
+description: |
+  中国象棋桌面应用——Flutter 版 ChineseChessUltra 的 Gio 全自绘单二进制重写。
+  内置 AI 引擎 / 残局求解器 / 大模型对战（思维链强制关闭）/ 语料棋谱库。
+homepage: https://github.com/jxsword/chinese_chess_go_gio
+license: MIT
+# 运行时依赖按 distro 命名差异大（上游同口径：不写 depends 硬绑）。
+# Gio Linux 版依赖 libX11/libXkbcommon/libWayland 等 X11 桌面基础库，
+# 主流桌面发行版默认齐备；缺失时按发行版安装 libx11-6 / libxkbcommon0 / libwayland-client0。
+contents:
+  - src: build/bin/chinese-chess-ultra-gio
+    dst: /usr/bin/chinese-chess-ultra-gio
+  - src: build/linux/chinese-chess-ultra-gio.desktop
+    dst: /usr/share/applications/chinese-chess-ultra-gio.desktop
+  - src: build/linux/chinese-chess-ultra-gio-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/chinese-chess-ultra-gio.png
