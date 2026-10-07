@@ -184,3 +184,19 @@ type ClipWriteDone struct {
 	Seq int
 	Err error
 }
+
+// DirPickDone 目录选择回执（00 §4 `dialog:pickdir`，D-006）。Dir 为空串 =
+// 用户取消（无操作）；Err 非 nil = 对话框/所选目录异常。
+type DirPickDone struct {
+	RequestID string
+	Dir       string
+	Err       error
+}
+
+// FileSaveDone 保存文件回执（00 §4 `dialog:savefile`，D-006）。Path 为空串 =
+// 用户取消；Err 非 nil = 写盘失败。
+type FileSaveDone struct {
+	RequestID string
+	Path      string
+	Err       error
+}

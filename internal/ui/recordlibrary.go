@@ -48,6 +48,7 @@ const (
 	actBattle = iota
 	actExport
 	actShare
+	actFile
 	actDelete
 )
 
@@ -55,7 +56,7 @@ const (
 var statusFilters = [4]state.SolveStatus{state.SolveNone, state.SolveSolved, state.SolveNoSolution, state.SolveTimeout}
 
 // actLabels 行操作按钮文案（下标=操作常量）。
-var actLabels = []string{"对战", "导出 PGN", "分享文本", "删除"}
+var actLabels = []string{"对战", "导出 PGN", "分享文本", "导出文件", "删除"}
 
 // RecordLibraryPage 记录库页 state struct（主 goroutine 独占；工厂页）。
 type RecordLibraryPage struct {
@@ -79,6 +80,7 @@ type RecordLibraryPage struct {
 	// 弹层/动作
 	launcher      BattleLauncher
 	launchTarget  *state.GameRecordData
+	saveFileID    string
 	deletingTitle string
 	deletingID    int64
 	pendingAction func(*state.GameRecordData)
@@ -203,11 +205,37 @@ func (p *RecordLibraryPage) OnAppEvent(payload any) {
 				p.showToast("棋谱文本已复制")
 			}
 		}
+	case FileSaveDone:
+		if ev.RequestID != p.saveFileID {
+			return
+		}
+		p.saveFileID = ""
+		switch {
+		case ev.Err != nil:
+			p.showToast("导出失败：" + ev.Err.Error())
+		case ev.Path == "":
+			p.showToast("已取消导出")
+		default:
+			p.showToast("PGN 文件已导出")
+		}
 	case ToastHide:
 		if ev.Seq == p.toastSeq {
 			p.toastText = ""
 		}
 	}
+}
+
+// saveFileAsync 保存文件对话框（D-006；上游"file"操作：取消=已取消导出、
+// 成功=PGN 文件已导出）。
+func (p *RecordLibraryPage) saveFileAsync(defaultName, content string) {
+	if p.env.Emit == nil {
+		return
+	}
+	id := p.newID("dialog-savefile")
+	p.saveFileID = id
+	SaveFileAsync(defaultName, content, func(savedPath string, err error) {
+		p.env.Emit(id, FileSaveDone{RequestID: id, Path: savedPath, Err: err}, nil) // id 值捕获（#G3）
+	})
 }
 
 // copyAsync 异步写 Windows 剪贴板（KG-004 反方向；回执经事件总线回主循环
@@ -433,6 +461,8 @@ func (p *RecordLibraryPage) runAction(a int, summary storage.GameRecordSummary) 
 			case actExport:
 				p.pendingExport = state.WritePgn(*d, time.Now())
 				p.copyAsync(&p.pendingExport, &p.clipExportSeq)
+			case actFile:
+				p.saveFileAsync(fmt.Sprintf("chess-record-%d.pgn", d.ID), state.WritePgn(*d, time.Now()))
 			case actShare:
 				p.pendingShare = state.WriteShareText(*d)
 				p.copyAsync(&p.pendingShare, &p.clipShareSeq)
@@ -622,6 +652,7 @@ func (p *RecordLibraryPage) layoutRow(gtx layout.Context, summary storage.GameRe
 						children = append(children,
 							layout.Rigid(p.smallAction(acts[actExport], "导出 PGN")),
 							layout.Rigid(p.smallAction(acts[actShare], "分享文本")),
+							layout.Rigid(p.smallAction(acts[actFile], "导出文件")),
 							layout.Rigid(p.smallAction(acts[actDelete], "删除")),
 						)
 						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)

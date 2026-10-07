@@ -80,8 +80,10 @@ type CorpusPage struct {
 	pastePgnBtn       widget.Clickable
 	pastePathBtn      widget.Clickable
 	pathEditor        widget.Editor
+	pickDirID         string
 	usePathBtn        widget.Clickable
 	resetPathBtn      widget.Clickable
+	pickDirBtn        widget.Clickable
 	onlyEndgame       widget.Bool
 	diffClicks        [6]widget.Clickable
 	sortClicks        [3]widget.Clickable
@@ -211,6 +213,19 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 		p.replay.OnTick(ev)
 	case ClipWriteDone:
 		p.replay.OnClipDone(ev)
+	case DirPickDone:
+		if ev.RequestID != p.pickDirID {
+			return
+		}
+		p.pickDirID = ""
+		if ev.Err != nil {
+			p.message = "选择目录失败：" + ev.Err.Error()
+			return
+		}
+		if ev.Dir == "" {
+			return // 用户取消
+		}
+		p.setUserPath(ev.Dir)
 	}
 }
 
@@ -385,6 +400,14 @@ func (p *CorpusPage) handleEvents(gtx layout.Context) {
 	if p.resetPathBtn.Clicked(gtx) {
 		p.setUserPath("")
 	}
+	// 选择其他棋谱目录（D-006：系统对话框；上游 CorpusPickDirectory 语义）
+	if p.pickDirBtn.Clicked(gtx) && p.pickDirID == "" {
+		id := p.newRequestID("dialog-pickdir")
+		p.pickDirID = id
+		PickDirectoryAsync(func(dir string, err error) {
+			p.emitBus(id, DirPickDone{RequestID: id, Dir: dir, Err: err}) // id 值捕获（#G3）
+		})
+	}
 	// 下载按钮
 	if p.downloadBtn.Clicked(gtx) && !p.downloading {
 		p.startDownload()
@@ -470,7 +493,10 @@ func (p *CorpusPage) layoutMissingGuide(gtx layout.Context) layout.Dimensions {
 				if p.downloading {
 					return p.simpleButton(&p.cancelDownloadBtn, "取消下载", false)(gtx)
 				}
-				return p.simpleButton(&p.downloadBtn, "下载语料包（约 45MB）", true)(gtx)
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Rigid(p.simpleButton(&p.downloadBtn, "下载语料包（约 45MB）", true)),
+					layout.Rigid(p.simpleButton(&p.pickDirBtn, "选择其他棋谱目录", false)),
+				)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if !p.downloading {
