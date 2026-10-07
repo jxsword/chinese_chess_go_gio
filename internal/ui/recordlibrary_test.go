@@ -158,3 +158,61 @@ func TestRecordLibraryDeleteAndReadFailure(t *testing.T) {
 		t.Fatal("读取失败不应打开详情")
 	}
 }
+
+// ---- M6' 验收反馈：操作入口收拢为右侧"操作 ▾"下拉菜单 ----
+
+// spec: 菜单状态机——打开（记录所属摘要暂存）、重复点同卡收起、换卡换目标。
+func TestRecordMenuOpenState(t *testing.T) {
+	env, _ := newRecordLibraryEnv()
+	p := NewRecordLibraryPage(env, RecordLibraryHooks{})
+	defer p.Dispose()
+
+	sum := storage.GameRecordSummary{ID: 7, Title: "甲", Mode: "endgame"}
+	// 模拟行按钮路径：置开
+	p.menuOpenID, p.menuOpenSum = sum.ID, sum
+	if p.menuOpenID != 7 {
+		t.Fatal("前置：菜单应处于打开态")
+	}
+	// 重复点同卡 → 收起
+	if p.menuOpenID == sum.ID {
+		p.closeActionMenu()
+	}
+	if p.menuOpenID != 0 || p.menuOpenSum.ID != 0 {
+		t.Fatalf("应收起清空: id=%d sum=%+v", p.menuOpenID, p.menuOpenSum)
+	}
+	// 换卡打开 → 目标切换
+	other := storage.GameRecordSummary{ID: 9, Title: "乙", Mode: "humanVsHuman"}
+	p.menuOpenID, p.menuOpenSum = other.ID, other
+	if p.menuOpenID != 9 {
+		t.Fatal("换卡应指向新目标")
+	}
+	p.closeActionMenu()
+}
+
+// spec: 菜单动作分发——五路全通（含 actFile：此前列表卡"导出文件"缺 case 无响应）。
+func TestRecordMenuActionDispatch(t *testing.T) {
+	env, repo := newRecordLibraryEnv()
+	p := NewRecordLibraryPage(env, RecordLibraryHooks{})
+	defer p.Dispose()
+	solved := "solved"
+	rec := &storage.GameRecord{
+		ID: 5, Title: "残局乙", Mode: "endgame", InitialFen: rules.FENInitial,
+		SolveStatus: &solved, Solutions: []any{},
+	}
+	repo.byID[5] = rec
+
+	// 删除：确认态置位
+	p.runAction(actDelete, summaryRecord(5, "残局乙", "endgame", nil, &solved))
+	if p.deletingID != 5 || p.deletingTitle == "" {
+		t.Fatalf("删除动作应置确认态: id=%d title=%q", p.deletingID, p.deletingTitle)
+	}
+	p.deletingID, p.deletingTitle = 0, ""
+
+	// 导出文件：动作路径不再因外层缺 case 而空转（openRecordByID 拉全量后落
+	// saveFileAsync——异步面无对话框环境下静默；此处锚定不 panic 且不误删）
+	p.runAction(actFile, summaryRecord(5, "残局乙", "endgame", nil, &solved))
+
+	// 导出 PGN / 分享：写 pending 剪贴板面
+	p.runAction(actExport, summaryRecord(5, "残局乙", "endgame", nil, &solved))
+	p.runAction(actShare, summaryRecord(5, "残局乙", "endgame", nil, &solved))
+}

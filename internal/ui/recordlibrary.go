@@ -55,8 +55,9 @@ const (
 // statusFilters 求解状态筛选档位（STATUS_FILTERS；再点同档取消——上游 toggle）。
 var statusFilters = [4]state.SolveStatus{state.SolveNone, state.SolveSolved, state.SolveNoSolution, state.SolveTimeout}
 
-// actLabels 行操作按钮文案（下标=操作常量）。
-var actLabels = []string{"对战", "导出 PGN", "分享文本", "导出文件", "删除"}
+// actLabels 行操作菜单项文案（下标=操作常量；M6' 验收反馈收拢为"操作 ▾"
+// 下拉菜单——上游 08 §5.1"每条菜单"同锚点，展开按钮带形态作废）。
+var actLabels = []string{"进入对战", "导出 PGN", "分享文本", "导出文件", "删除"}
 
 // RecordLibraryPage 记录库页 state struct（主 goroutine 独占；工厂页）。
 type RecordLibraryPage struct {
@@ -99,7 +100,11 @@ type RecordLibraryPage struct {
 	list           layout.List
 	moveList       layout.List
 	titleClicks    map[int64]*widget.Clickable
-	actBtns        map[int64]map[int]*widget.Clickable
+	menuBtns       map[int64]*widget.Clickable // 每卡"操作 ▾"按钮
+	menuOpenID     int64                       // 打开的操作菜单所属记录（0=无）
+	menuOpenSum    storage.GameRecordSummary   // 菜单所属记录摘要（动作分发用）
+	menuItemBtns   [5]widget.Clickable         // 菜单项点击器（浮层同时只开一个，全局一组）
+	menuMaskClick  widget.Clickable            // 菜单遮罩（点外关闭）
 	detailBackBtn  widget.Clickable
 	battleBtn      widget.Clickable
 	exportBtn      widget.Clickable
@@ -124,7 +129,7 @@ func NewRecordLibraryPage(env GameEnv, hooks RecordLibraryHooks) *RecordLibraryP
 		list:        layout.List{Axis: layout.Vertical},
 		moveList:    layout.List{Axis: layout.Vertical},
 		titleClicks: map[int64]*widget.Clickable{},
-		actBtns:     map[int64]map[int]*widget.Clickable{},
+		menuBtns:    map[int64]*widget.Clickable{},
 		plyClicks:   map[int]*widget.Clickable{},
 	}
 	p.reload()
@@ -336,29 +341,64 @@ func (p *RecordLibraryPage) filtered() []storage.GameRecordSummary {
 
 // handleEvents 输入消费（主 goroutine）。
 func (p *RecordLibraryPage) handleEvents(gtx layout.Context) {
-	if p.backBtn.Clicked(gtx) && p.hooks.OnBack != nil {
-		p.hooks.OnBack()
-	}
-	for i := range p.filterClicks {
-		if p.filterClicks[i].Clicked(gtx) {
-			st := statusFilters[i]
-			if p.filter != nil && *p.filter == st {
-				p.filter = nil
-			} else {
-				p.filter = &st
+	// 操作菜单打开：遮罩拦截底层交互（筛选/列表仅消费本帧边沿防穿透误触发——
+	// KG-008 收口口径；菜单自身输入在下方浮层分支处理）
+	if p.menuOpenID != 0 {
+		p.backBtn.Clicked(gtx)
+		for i := range p.filterClicks {
+			p.filterClicks[i].Clicked(gtx)
+		}
+		for _, c := range p.titleClicks {
+			c.Clicked(gtx)
+		}
+		for _, c := range p.menuBtns {
+			c.Clicked(gtx)
+		}
+		p.consumeDetailEdges(gtx)
+	} else {
+		if p.backBtn.Clicked(gtx) && p.hooks.OnBack != nil {
+			p.hooks.OnBack()
+		}
+		for i := range p.filterClicks {
+			if p.filterClicks[i].Clicked(gtx) {
+				st := statusFilters[i]
+				if p.filter != nil && *p.filter == st {
+					p.filter = nil
+				} else {
+					p.filter = &st
+				}
 			}
 		}
 	}
-	// 列表：标题点击 → 详情；操作按钮
+	// 列表：标题点击 → 详情；"操作 ▾"按钮 → 打开菜单（菜单打开时上方已消费边沿，
+	// 此分支不会执行——防误开/误进详情）
 	items := p.filtered()
 	for i := range items {
 		id := items[i].ID
 		if c := p.titleClicks[id]; c != nil && c.Clicked(gtx) {
 			p.openRecordByID(id, nil)
 		}
-		for a, c := range p.actBtns[id] {
-			if c != nil && c.Clicked(gtx) {
-				p.runAction(a, items[i])
+		if c := p.menuBtns[id]; c != nil && c.Clicked(gtx) {
+			if p.menuOpenID == id {
+				p.closeActionMenu() // 重复点同卡=收起
+			} else {
+				p.menuOpenID = id
+				p.menuOpenSum = items[i]
+			}
+		}
+	}
+	// 操作菜单浮层（打开时：遮罩点外关闭；菜单项分发动作）
+	if p.menuOpenID != 0 {
+		if p.menuMaskClick.Clicked(gtx) {
+			p.closeActionMenu()
+		} else {
+			for a := range p.menuItemBtns {
+				if p.menuItemBtns[a].Clicked(gtx) {
+					sum := p.menuOpenSum
+					p.closeActionMenu()
+					p.runAction(a, sum)
+					break
+				}
 			}
 		}
 	}
@@ -442,13 +482,42 @@ func (p *RecordLibraryPage) launchBattle(mode BattleMode, playerSide string, tar
 	}
 }
 
+// consumeDetailEdges 详情视图控件边沿消费（菜单打开时的防穿透面）。
+func (p *RecordLibraryPage) consumeDetailEdges(gtx layout.Context) {
+	if p.detail == nil {
+		return
+	}
+	p.detailBackBtn.Clicked(gtx)
+	p.battleBtn.Clicked(gtx)
+	p.exportBtn.Clicked(gtx)
+	p.shareBtn.Clicked(gtx)
+	p.deleteBtn.Clicked(gtx)
+	p.lineMainBtn.Clicked(gtx)
+	for i := range p.lineSolBtns {
+		p.lineSolBtns[i].Clicked(gtx)
+	}
+	p.toStartBtn.Clicked(gtx)
+	p.prevBtn.Clicked(gtx)
+	p.nextBtn.Clicked(gtx)
+	p.endBtn.Clicked(gtx)
+	for _, c := range p.plyClicks {
+		c.Clicked(gtx)
+	}
+}
+
+// closeActionMenu 收起操作菜单。
+func (p *RecordLibraryPage) closeActionMenu() {
+	p.menuOpenID = 0
+	p.menuOpenSum = storage.GameRecordSummary{}
+}
+
 // runAction 行操作（上游 actions switch：全量记录拉取后执行）。
 func (p *RecordLibraryPage) runAction(a int, summary storage.GameRecordSummary) {
 	switch a {
 	case actDelete:
 		p.deletingTitle = summary.Title
 		p.deletingID = summary.ID
-	case actBattle, actExport, actShare:
+	case actBattle, actExport, actShare, actFile:
 		p.openRecordByID(summary.ID, func(d *state.GameRecordData) {
 			switch a {
 			case actBattle:
@@ -496,6 +565,12 @@ func (p *RecordLibraryPage) Layout(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(p.layoutHeader),
 				layout.Flexed(1, p.layoutBody),
 			)
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions { // 操作菜单浮层（右上锚定）
+			if p.menuOpenID != 0 {
+				p.layoutActionMenu(gtx)
+			}
+			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions { // 进入对战启动器（共用组件）
 			p.launcher.Layout(gtx, p.launchBattle)
@@ -594,20 +669,17 @@ func (p *RecordLibraryPage) layoutList(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-// layoutRow 记录卡行（标题区点击 → 详情；下方操作按钮组——上游行内 select 的 Gio 形态）。
+// layoutRow 记录卡行（标题+meta 居左点进详情；右侧"操作 ▾"开菜单——上游 08 §5.1"每条菜单"锚点）。
 func (p *RecordLibraryPage) layoutRow(gtx layout.Context, summary storage.GameRecordSummary) layout.Dimensions {
 	titleC, ok := p.titleClicks[summary.ID]
 	if !ok {
 		titleC = &widget.Clickable{}
 		p.titleClicks[summary.ID] = titleC
 	}
-	acts, ok := p.actBtns[summary.ID]
+	menuC, ok := p.menuBtns[summary.ID]
 	if !ok {
-		acts = map[int]*widget.Clickable{}
-		for a := range actLabels {
-			acts[a] = &widget.Clickable{}
-		}
-		p.actBtns[summary.ID] = acts
+		menuC = &widget.Clickable{}
+		p.menuBtns[summary.ID] = menuC
 	}
 	isEndgame := summary.Mode == "endgame"
 	status := ""
@@ -622,8 +694,10 @@ func (p *RecordLibraryPage) layoutRow(gtx layout.Context, summary storage.GameRe
 		defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(8))).Push(gtx.Ops).Pop()
 		paint.Fill(gtx.Ops, ThemeSurfaceDim)
 		return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// 单行卡：标题+meta 居左（点进详情），"操作 ▾"贴右缘（M6' 验收反馈：
+			// 操作收拢为右侧下拉菜单——上游 08 §5.1"每条菜单"同锚点）
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return titleC.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -642,25 +716,84 @@ func (p *RecordLibraryPage) layoutRow(gtx layout.Context, summary storage.GameRe
 					})
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						children := []layout.FlexChild{}
-						// 入口判定与 canLaunchBattle 等价：残局类恒有；对局类仅未分胜负时有
-						//（summary 无 moves，不必拉全量记录——上游同口径）。
-						if summary.Mode == "endgame" || summary.Result == nil {
-							children = append(children, layout.Rigid(p.smallAction(acts[actBattle], "进入对战")))
-						}
-						children = append(children,
-							layout.Rigid(p.smallAction(acts[actExport], "导出 PGN")),
-							layout.Rigid(p.smallAction(acts[actShare], "分享文本")),
-							layout.Rigid(p.smallAction(acts[actFile], "导出文件")),
-							layout.Rigid(p.smallAction(acts[actDelete], "删除")),
-						)
-						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+					return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						btn := material.Button(PageTheme, menuC, "操作 ▾")
+						btn.Background = ThemeSurface
+						btn.Color = ThemeSeedDark
+						btn.TextSize = unit.Sp(12)
+						gtx.Constraints.Min.X = gtx.Dp(unit.Dp(76))
+						gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(34))
+						return btn.Layout(gtx)
 					})
 				}),
 			)
 		})
 	})
+}
+
+// layoutActionMenu 操作菜单浮层（M6' 验收反馈：右上锚定 + 遮罩点外关闭；
+// 固定锚定规避虚拟化列表滚动导致的锚点错位）。Stack 顶层调用。
+func (p *RecordLibraryPage) layoutActionMenu(gtx layout.Context) layout.Dimensions {
+	// 遮罩（拦截并消费点击——点外关闭）
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, rgba(0x000000, 0.25))
+	p.menuMaskClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: gtx.Constraints.Max}
+	})
+
+	// 面板：右上锚定（右/上边距 16dp）
+	const menuW = 180
+	W, H := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
+	w := gtx.Dp(unit.Dp(menuW))
+	if W < w+gtx.Dp(unit.Dp(32)) {
+		w = W - gtx.Dp(unit.Dp(32))
+	}
+	macro := op.Record(gtx.Ops)
+	mctx := gtx
+	mctx.Constraints = layout.Constraints{Max: image.Point{X: w, Y: H}}
+	dims := layout.UniformInset(unit.Dp(6)).Layout(mctx, p.menuItems)
+	call := macro.Stop()
+
+	menuH := dims.Size.Y
+	x, y := W-gtx.Dp(unit.Dp(16))-w, gtx.Dp(unit.Dp(60)) // 顶部与列表首卡对齐
+	tr := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
+	defer tr.Pop()
+	defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: w, Y: menuH}}, gtx.Dp(unit.Dp(10))).Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, ThemeSurface)
+	call.Add(gtx.Ops)
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}
+
+// menuItems 菜单项列（删除项红字；每项整行可点）。
+func (p *RecordLibraryPage) menuItems(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			l := material.Body2(PageTheme, "记录操作")
+			l.TextSize = unit.Sp(11)
+			l.Color = ThemeSeedDark
+			return layout.Inset{Left: unit.Dp(10), Top: unit.Dp(6), Bottom: unit.Dp(2)}.Layout(gtx, l.Layout)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			children := make([]layout.FlexChild, 0, len(p.menuItemBtns))
+			for a := range p.menuItemBtns {
+				a := a
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return p.menuItemBtns[a].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							l := material.Body2(PageTheme, actLabels[a])
+							l.TextSize = unit.Sp(14)
+							l.Color = ThemeOnSurface
+							if a == actDelete {
+								l.Color = ThemeError
+							}
+							return l.Layout(gtx)
+						})
+					})
+				}))
+			}
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+		}),
+	)
 }
 
 // smallAction 行操作小按钮。
