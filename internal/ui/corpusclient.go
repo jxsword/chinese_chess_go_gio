@@ -122,8 +122,8 @@ func (d *CorpusDownloader) StartAsync(requestID, url, targetDir string, isCancel
 	targetDir = d.resolveTargetDir(targetDir)
 	go func() {
 		_, err := storage.DownloadCorpus(storage.DownloadCorpusOptions{
-			URL:         url,
-			TargetDir:   targetDir,
+			URL:       url,
+			TargetDir: targetDir,
 			OnProgress: func(received, total int64) {
 				d.emit(requestID, CorpusDownloadProgress{RequestID: requestID, Received: received, Total: total}, nil)
 			},

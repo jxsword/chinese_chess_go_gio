@@ -19,8 +19,8 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
-	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
+	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 )
 
 // RecordSaveDialog "保存为棋谱"对话框 state struct（主 goroutine 独占）。

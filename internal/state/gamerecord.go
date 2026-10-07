@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
+	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 )
 
 // SolveStatus 求解状态（game_record.dart SolveStatus）。
@@ -272,4 +273,98 @@ func WriteShareText(record GameRecordData) string {
 		lines = append(lines, fmt.Sprintf("大模型注释: %s", *record.LlmNote))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// RecordDataToStorage 记录 → 存储契约面（上游 RecordSaveDialog recordDataToApiRecord：
+// moves 条目 p 规范化为 string（null→空串）、x 透传）。
+func RecordDataToStorage(d GameRecordData) storage.GameRecord {
+	moves := make([]storage.RecordMove, 0, len(d.Moves))
+	for i := range d.Moves {
+		raw := storage.EncodeRecordMove(&d.Moves[i])
+		p := ""
+		if raw.P != nil {
+			p = *raw.P
+		}
+		moves = append(moves, storage.RecordMove{F: raw.F, T: raw.T, P: p, X: raw.X})
+	}
+	var solutions any
+	if d.Solutions != nil {
+		arr := make([][]string, 0, len(d.Solutions))
+		for _, s := range d.Solutions {
+			arr = append(arr, append([]string(nil), s...))
+		}
+		solutions = arr
+	}
+	var result, solveStatus *string
+	if d.Result != nil {
+		v := *d.Result
+		result = &v
+	}
+	if d.SolveStatus != SolveNone {
+		v := string(d.SolveStatus)
+		solveStatus = &v
+	}
+	createdAt := d.CreatedAt
+	if createdAt == 0 {
+		createdAt = time.Now().UnixMilli()
+	}
+	return storage.GameRecord{
+		Title:       d.Title,
+		Mode:        d.Mode,
+		InitialFen:  d.InitialFen,
+		Moves:       moves,
+		Result:      result,
+		SolveStatus: solveStatus,
+		Solutions:   solutions,
+		LlmNote:     d.LlmNote,
+		Note:        d.Note,
+		CreatedAt:   createdAt,
+	}
+}
+
+// RecordDataFromStorage 存储行 → 记录（上游 RecordLibraryPage toRecordData：
+// moves 逐条 DecodeRecordMove 脏数据防御、solveStatus 缺省 none、solutions 缺省空）。
+func RecordDataFromStorage(r *storage.GameRecord) GameRecordData {
+	moves := make([]rules.Move, 0, len(r.Moves))
+	for i := range r.Moves {
+		m := storage.DecodeRecordMove(map[string]any{
+			"f": r.Moves[i].F, "t": r.Moves[i].T,
+			"p": r.Moves[i].P, "x": r.Moves[i].X,
+		})
+		if m != nil {
+			moves = append(moves, *m)
+		}
+	}
+	d := GameRecordData{
+		ID:          r.ID,
+		Title:       r.Title,
+		Mode:        r.Mode,
+		InitialFen:  r.InitialFen,
+		Moves:       moves,
+		Result:      r.Result,
+		SolveStatus: SolveNone,
+		Solutions:   [][]string{},
+		LlmNote:     r.LlmNote,
+		Note:        r.Note,
+		CreatedAt:   r.CreatedAt,
+	}
+	if r.SolveStatus != nil && *r.SolveStatus != "" {
+		d.SolveStatus = SolveStatus(*r.SolveStatus)
+	}
+	if arr, ok := r.Solutions.([]any); ok {
+		parsed := make([][]string, 0, len(arr))
+		for _, item := range arr {
+			if ss, ok2 := item.([]any); ok2 {
+				line := make([]string, 0, len(ss))
+				for _, code := range ss {
+					if s, ok3 := code.(string); ok3 {
+						line = append(line, s)
+					}
+				}
+				parsed = append(parsed, line)
+			}
+		}
+		d.Solutions = parsed
+	}
+	return d
 }

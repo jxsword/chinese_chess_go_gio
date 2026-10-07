@@ -271,9 +271,10 @@ func Run(cfg Config) error {
 			},
 		})
 	})
-	// 语料库/棋谱库页（T5'.1）：工厂页——每次导航进入创建新实例并重扫
+	// 残局选关页（T5'.1，D-004 勘误）：残局选关入口 = 语料库浏览页（上游
+	// /puzzle CorpusBrowserPage 同位）——每次导航进入创建新实例并重扫
 	//（上游 useEffect(load, []) 每挂载语义），离开 Dispose 取消在途解析/下载。
-	w.Router().RegisterFactory(RouteCorpus, func() ui.Page {
+	w.Router().RegisterFactory(RouteEndgameSelect, func() ui.Page {
 		return ui.NewCorpusPage(w.corpusEnv(), ui.CorpusHooks{
 			OnBack: func() {
 				if err := w.Navigate(RouteHome); err != nil {
@@ -282,16 +283,33 @@ func Run(cfg Config) error {
 			},
 			// 进入对战（T5'.3，recordBattle 语义）：先置起点再导航——工厂闭包
 			// 经 gameEnv() 消费（一次性），目标页跳过存档恢复并以该 FEN 开局。
-			OnBattle: func(mode ui.BattleMode, fen string) {
-				w.pendingBattle = &ui.BattleStart{Fen: fen}
+			OnBattle: func(mode ui.BattleMode, fen, playerSide string) {
+				w.pendingBattle = &ui.BattleStart{Fen: fen, PlayerSide: playerSide}
 				if err := w.Navigate(battleRouteOf(mode)); err != nil {
 					log.Println("app: 进入对战导航失败:", err)
 				}
 			},
 		})
 	})
-	// 其余 2 入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteEndgameSelect, RouteStudio} {
+	// 棋谱库页（T5'.3，D-004 勘误）：棋谱库入口 = 记录库页（上游 /record-library
+	// RecordLibraryPage/RecordDetailPage 同位）；写入面=对局页"保存为棋谱"。
+	w.Router().RegisterFactory(RouteCorpus, func() ui.Page {
+		return ui.NewRecordLibraryPage(w.gameEnv(), ui.RecordLibraryHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+			OnBattle: func(mode ui.BattleMode, fen, playerSide string) {
+				w.pendingBattle = &ui.BattleStart{Fen: fen, PlayerSide: playerSide}
+				if err := w.Navigate(battleRouteOf(mode)); err != nil {
+					log.Println("app: 进入对战导航失败:", err)
+				}
+			},
+		})
+	})
+	// 其余入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
+	for _, rt := range []Route{RouteStudio} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),

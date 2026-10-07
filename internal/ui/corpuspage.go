@@ -49,7 +49,7 @@ var sortLabels = []struct {
 type CorpusHooks struct {
 	OnBack func()
 	// OnBattle 进入对战（T5'.3，recordBattle 语义翻译）：mode + 起点 FEN。
-	OnBattle func(mode BattleMode, fen string)
+	OnBattle func(mode BattleMode, fen, playerSide string)
 }
 
 // CorpusPage 语料库页 state struct（铁律 #G3：主 goroutine 独占；工厂页，
@@ -118,7 +118,11 @@ func NewCorpusPage(env CorpusEnv, hooks CorpusHooks) *CorpusPage {
 	p.searchEditor.SingleLine = true
 	p.pgnSearchEditor.SingleLine = true
 	p.replay = NewReplayView(env.Emit)
-	p.replay.OnBattle = hooks.OnBattle
+	p.replay.OnBattle = func(mode BattleMode, fen string) {
+		if hooks.OnBattle != nil {
+			hooks.OnBattle(mode, fen, "")
+		}
+	}
 	if os.Getenv("CC_GIO_SYNTH_SCROLL") == "1" {
 		p.perf = newFramePerf()
 	}
@@ -378,7 +382,7 @@ func (p *CorpusPage) layoutHeader(gtx layout.Context) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(12), Left: unit.Dp(16), Right: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				title := material.H5(PageTheme, "棋谱库")
+				title := material.H5(PageTheme, "语料库浏览")
 				title.Color = ThemeOnSurface
 				return title.Layout(gtx)
 			}),

@@ -38,8 +38,11 @@ var BattleModeOptions = []BattleModeOption{
 // BattleStart 对局页"进入对战"起点（app 装配层经 GameEnv 注入；构造时消费）。
 // Fen 非空时页面跳过存档恢复、以该 FEN 开局，且 canSave=false（续战来源
 // 不写存档桶——防错 #6，上游 battleRoute 页面门控同口径）。
+// PlayerSide = 玩家执方（"red"/"black"；空 = 默认红——上游 battleRouteFor
+// 仅 humanVsAi 携 side query，人机页据此设置执方选择）。
 type BattleStart struct {
-	Fen string
+	Fen        string
+	PlayerSide string
 }
 
 // BattleStartFen 重放视图的进入对战起点 FEN（recordBattle.ts battleStartFen
