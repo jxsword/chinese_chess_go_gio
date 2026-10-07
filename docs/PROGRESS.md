@@ -29,7 +29,7 @@ T5'.1~T5'.3 完成，T5'.4 文件对话框决策项已出决策矩阵**待用户
 | T5'.1 语料库页 | `ui/corpusclient.go`（复制物直调 CorpusIO + 下载客户端）+ `ui/corpuspage.go`（下载引导含**取消按钮**防错 #10/分类列/XQF 面板/虚拟化行卡）+ `app/corpus.go`（corpusRoot 解析+工厂注册）+ cmd/poc corpus 冒烟模式（commit efb4fdf） | X11 截图取证 corpus_missing.png（缺失引导）/corpus_main.png（样例 XQF 端到端扫描→分批解析→77 着/难度/残局题投影） |
 | T5'.2 PGN 面板 | 虚拟化连续长列表（KG-002 口径手势滚动）+ 搜索（Editor+IME，过滤缓存 dirty）+ 搜索跳转 + 行点击进详情 + `ui/corpusperf.go` 性能实测脚手架（CC_GIO_SYNTH_* 注入，生产零影响）+ 搜索框 KG-004 粘贴按钮（commit dc1f9e6） | **14 万局滚动实测（最坏口径：每帧重绘+每帧排帧）：稳态 FPS 76~87、帧开销 avg 3.2~5.7ms / max ≤6.5ms（预算 16.7ms）**；证据 corpus_pgn_perf*.png + perf 日志 |
 | T5'.3 重放器+导出+进入对战 | `state/gamerecord.go`+`state/pgnwriter.go`（pgnWriter.ts 逐字翻译）+ `ui/replayview.go`（静态棋盘/步进/800ms 自动播放（goroutine+stop 通道+replay:tick，gen 迟到丢弃）/中文记谱走法列表/导出 PGN 复制（clipboard.WriteOp）/进入对战弹层）+ `ui/battle.go`（BattleMode 四选项+BattleStartFen）+ app pendingBattle 一次性消费 → 4 对局页构造器跳过恢复、以起点 FEN 开局、canSave=false（防错 #6）（commit f31e237） | **PGN 导出快照与上游逐字符一致**（2 快照用例）+ pgnwriter 8 用例 + 重放器状态机 8 用例 + 进入对战页用例 1，-race 全绿；截图 replay_detail4.png（77 着完整呈现）/replay_playing.png（4/77 自动推进） |
-| T5'.4 文件对话框 | **决策矩阵已出（见下），待用户定案后实现**；受影响功能：下载引导"选择其他棋谱目录"、"导出 PGN 文件"（保存对话框） | ⬜ |
+| T5'.4 文件对话框 | **D-006 定案（用户裁决：系统命令方案）+ 落地**（commit c86d469）：ui/filedialog.go（zenity/kdialog/FolderBrowserDialog/osascript，取消=空串）+ 语料页"选择其他棋谱目录"（→ 写 corpus.userPath → 重扫）+ 记录库"导出文件"操作；路径输入保留为兜底 | zenity 本机实测可启动；设置写入存储层独立验证 set ok；UI 全链路待用户手测 |
 
 ### M5' 复审记录（§6.1 两轮，commit c028ff8）
 
