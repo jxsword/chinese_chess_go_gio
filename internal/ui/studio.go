@@ -1377,6 +1377,15 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 		DrawToast(gtx, fmt.Sprintf("求解中… 已用时 %.1fs", time.Since(p.solveStart).Seconds()))
 	}
 	if p.sheetOpen && p.sheet != nil {
+		// 按钮点击消费（先于绘制——Click 在本帧布局中注册、当帧回执边沿）：
+		// 渲染不消费=死按钮（M4' 验收修复轮 11 同款教训）。
+		switch {
+		case p.closeBtn.Clicked(gtx), p.close2Btn.Clicked(gtx):
+			p.sheetOpen = false
+			p.sheet = nil
+		case p.battleBtn.Clicked(gtx):
+			p.launcher.Open(nil) // 进入对战联动（起点/执方由 launchBattle 提供）
+		}
 		p.layoutSheet(gtx)
 	}
 	if p.assistantOpen && p.assistantCard != nil {
