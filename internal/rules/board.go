@@ -457,3 +457,11 @@ func (b *Board) pawnMoves(p Position, piece *Piece) []Move {
 	}
 	return moves
 }
+
+// InPalace 是否在九宫内（board.dart:52-58 同语义；Gio 版导出包装——工作室
+// 摆盘校验消费，K9 处置：08 §7 既定导出差异，一行登记，实现不复制）。
+func InPalace(col, row int, side Side) bool { return inPalace(col, row, side) }
+
+// InOwnHalf 是否在自己半场（未过河：红 row≥5 / 黑 row≤4；Gio 版导出包装，
+// 同上 K9 处置）。
+func InOwnHalf(row int, side Side) bool { return inOwnHalf(row, side) }

@@ -16,7 +16,7 @@
 | K6 | node_modules 内 Go 代码污染质量门 | CI/工具链 | ② | 消解 | 无 node_modules |
 | K7 | buildFen 接口收敛 | 领域 | ① | 继承 | 复制物同态，无需处置 |
 | K8 | Board.grid 用 BoardGrid 二维切片 | 领域 | ① | 继承 | 复制物同态 |
-| K9 | inPalace 等未导出 | 领域 | ① | 继承 | 摆盘如需导出=一行改动，登记差异（08 §7） |
+| K9 | inPalace 等未导出 | 领域 | ① | 已处置（M6'） | 摆盘如需导出=一行改动，登记差异（08 §7）——M6' T6'.2 增加导出包装 `InPalace`/`InOwnHalf`（internal/rules/board.go 末尾，原实现未动，逐行委托内部函数） |
 | K10 | 裁决对无效 FEN 行为差 | 领域 | ① | 继承 | 复制物同态，跨语言审计点 |
 | K11 | moveNotation 退化输入 panic | 领域 | ① | 继承 | 复制物同态，调用侧校验 |
 | K12 | 凭据槽位契约面字段差 | 领域+前端 | ① | 已注销（复制物已含修复） | 槽位 JSON 四字段终态 |

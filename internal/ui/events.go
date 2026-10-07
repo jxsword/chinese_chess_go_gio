@@ -202,6 +202,12 @@ type FileSaveDone struct {
 	Err       error
 }
 
+// SolveTick 求解进度计时（00 §4 `solve:tick`，M6'）：求解中 200ms 节拍；
+// Gen 代次过期忽略（#G5）。
+type SolveTick struct {
+	Gen int
+}
+
 // SolveDone 求解回执（00 §4 `solve:done`，M6'）。Result 为复制物 wire 结果
 // （status/solutions/elapsed/searchedPlies）；Err 非 nil = 取消/非法 FEN 等。
 type SolveDone struct {

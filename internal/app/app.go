@@ -308,8 +308,25 @@ func Run(cfg Config) error {
 			},
 		})
 	})
+	// 残局工作室页（T6'.2，08 §7 三 Tab）：工厂页（每导航一实例，#G4）；
+	// 求解经 Solver Runner 直调、入库经记录库代理、进入对战经 pendingBattle 联动。
+	w.Router().RegisterFactory(RouteStudio, func() ui.Page {
+		return ui.NewStudioPage(w.llmEnv(), ui.StudioHooks{
+			OnBack: func() {
+				if err := w.Navigate(RouteHome); err != nil {
+					log.Println("app: 返回主页失败:", err)
+				}
+			},
+			OnBattle: func(mode ui.BattleMode, fen, side string) {
+				w.pendingBattle = &ui.BattleStart{Fen: fen, PlayerSide: side}
+				if err := w.Navigate(battleRouteOf(mode)); err != nil {
+					log.Println("app: 进入对战导航失败:", err)
+				}
+			},
+		})
+	})
 	// 其余入口页后续里程碑逐个落地；先注册占位页保证主页可导航。
-	for _, rt := range []Route{RouteStudio} {
+	for _, rt := range []Route{} {
 		rt := rt
 		w.Router().Register(rt, ui.NewEntryPlaceholder(ui.EntryPlaceholder{
 			Title: titleOfRoute(rt),
