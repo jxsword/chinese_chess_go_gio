@@ -1413,7 +1413,10 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 		if p.asstSaveBtn.Clicked(gtx) {
 			p.saveAssistant()
 		}
-		p.layoutAssistantDialog(gtx)
+		// 关闭后本帧跳过绘制（card 已 nil——nil deref panic，与结果面板同款）
+		if p.assistantOpen && p.assistantCard != nil {
+			p.layoutAssistantDialog(gtx)
+		}
 	}
 	if p.launcher.Opened() && p.sheet != nil {
 		p.launcher.Layout(gtx, p.launchBattle)
