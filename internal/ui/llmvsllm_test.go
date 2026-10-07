@@ -5,6 +5,8 @@ package ui
 // 停止/新游戏代次收口、failed 判负终止（防错 #7）、双槽位保存回执。
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/engine"
@@ -27,6 +29,8 @@ type llvFixture struct {
 
 func newLlvFixture() *llvFixture {
 	f := &llvFixture{pageEnvFixture: newPageEnvFixture(newPageRepo(), true), store: &fakeLlmStore{}, llm: newFakeLlmRunner()}
+	var seq atomic.Int64
+	f.env.NewRequestID = func(prefix string) string { return fmt.Sprintf("%s-%d", prefix, seq.Add(1)) }
 	f.aiRev = newFakeRunner()
 	f.page = newLlmVsLlmPage(llmEnvOf(f.pageEnvFixture.env, f.store), LlmVsLlmHooks{}, f.llm, f.aiRev)
 	// 完成进页恢复（不自动续跑——上游语义）
@@ -294,5 +298,75 @@ func TestLlmVsLlmMirrorHints(t *testing.T) {
 	resolved := llm.ResolveLlmSideConfig(f.page.blackConfig, f.page.redConfig, storage.SlotBlack, storage.SlotRed)
 	if resolved.Config != f.page.redConfig || resolved.AuthSlot != storage.SlotRed {
 		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
+// OnAttempt 竞态回归（#G3/#G5）：回调闭包按触发时 requestId 值捕获（同
+// humanvsllm）——作废后旧回调仍携带旧 id，不读主 goroutine 可写的 moveRequest。
+func TestLlmVsLlmAttemptIdCaptured(t *testing.T) {
+	f := newLlvFixture()
+	f.page.gameSettings.IntervalSeconds = 0
+	f.loadConfigs(
+		llm.LlmEndpointConfig{BaseURL: "https://r/v1", Model: "red-model"},
+		llm.LlmEndpointConfig{BaseURL: "https://b/v1", Model: "black-model"},
+	)
+	f.page.start()
+	firstID := f.page.moveRequest
+	firstSpec := f.llm.moves[0]
+
+	// 停止 → 再开始：第二次 pump 携带新 id
+	f.page.stop()
+	f.page.start()
+	secondID := f.page.moveRequest
+	if firstID == secondID {
+		t.Fatal("second pump should carry a new requestId")
+	}
+
+	// 模拟后台 goroutine 持旧 spec 回调：emit 必须携带触发时捕获的旧 id
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		firstSpec.OnAttempt(1, 3)
+	}()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	last := f.emitted[len(f.emitted)-1]
+	progress, ok := last.(LlmAttemptProgress)
+	if !ok {
+		t.Fatalf("last payload = %T", last)
+	}
+	if progress.RequestID != firstID {
+		t.Fatalf("stale OnAttempt emitted requestId = %q, want captured %q", progress.RequestID, firstID)
+	}
+}
+
+// LlmTestDone 双卡定向（#G5）：回执只回填对应卡片，另一卡不受串扰。
+func TestLlmVsLlmTestResultRoutedToCard(t *testing.T) {
+	f := newLlvFixture()
+	f.loadConfigs(
+		llm.LlmEndpointConfig{BaseURL: "https://r/v1", Model: "red-model"},
+		llm.LlmEndpointConfig{BaseURL: "https://b/v1", Model: "black-model"},
+	)
+
+	f.page.onRedTest(llm.LlmEndpointConfig{BaseURL: "https://r/v1"}, storage.SlotRed)
+	f.page.onBlackTest(llm.LlmEndpointConfig{BaseURL: "https://b/v1"}, storage.SlotBlack)
+	if f.page.testRedID == "" || f.page.testBlackID == "" {
+		t.Fatal("both test requests should record their requestIds")
+	}
+
+	f.page.OnAppEvent(LlmTestDone{RequestID: f.page.testBlackID, OK: false, Message: "黑方失败"})
+	if f.page.redCard.testResult != "" {
+		t.Fatalf("black receipt must not touch red card, got %q", f.page.redCard.testResult)
+	}
+	if f.page.blackCard.testResult != "黑方失败" {
+		t.Fatalf("black card should receive its receipt, got %q", f.page.blackCard.testResult)
+	}
+	f.page.OnAppEvent(LlmTestDone{RequestID: f.page.testRedID, OK: true, Message: "红方成功"})
+	if f.page.redCard.testResult != "红方成功" {
+		t.Fatalf("red card should receive its receipt, got %q", f.page.redCard.testResult)
+	}
+	if f.page.testRedID != "" || f.page.testBlackID != "" {
+		t.Fatal("test ids should clear after matched receipts")
 	}
 }

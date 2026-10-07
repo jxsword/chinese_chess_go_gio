@@ -455,3 +455,64 @@ func TestHumanVsLlmPersist(t *testing.T) {
 		t.Fatal("stale persist tick must be ignored")
 	}
 }
+
+// OnAttempt 竞态回归（#G3/#G5）：回调闭包按触发时 requestId 值捕获——作废后旧
+// 回调仍携带旧 id（迟到回执由页面按 id 丢弃），且不再读取主 goroutine 可写的
+// 页面字段（llmRequestID/moveRequest），走子 goroutine 调用无数据竞态。
+func TestHumanVsLlmAttemptIdCaptured(t *testing.T) {
+	f := newLlmEnvFixture()
+	f.blackReady(t, llm.LlmEndpointConfig{BaseURL: "https://b/v1", APIKey: "****1234", Model: "glm-4-flash"})
+	if !f.playPlayerMove() {
+		t.Fatal("player move failed")
+	}
+	f.page.onPlayerMoved()
+	firstID := f.llm.lastMoveID(t)
+	firstSpec := f.llm.moves[len(f.llm.moves)-1]
+
+	// 中止重想：作废在途并触发第二次请求（triggerLlmMove 内部先 abandonLlm）
+	f.page.triggerLlmMove()
+	secondID := f.llm.lastMoveID(t)
+	if firstID == secondID {
+		t.Fatal("second trigger should carry a new requestId")
+	}
+
+	// 模拟后台 goroutine 持旧 spec 回调：emit 必须携带触发时捕获的旧 id
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		firstSpec.OnAttempt(1, 3)
+	}()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	last := f.emitted[len(f.emitted)-1]
+	progress, ok := last.(LlmAttemptProgress)
+	if !ok {
+		t.Fatalf("last payload = %T", last)
+	}
+	if progress.RequestID != firstID {
+		t.Fatalf("stale OnAttempt emitted requestId = %q, want captured %q", progress.RequestID, firstID)
+	}
+}
+
+// LlmTestDone 按 id 收口（#G5）：过期回执不回填配置卡，匹配回执回填后清 id。
+func TestHumanVsLlmTestResultStaleDropped(t *testing.T) {
+	f := newLlmEnvFixture()
+	f.blackReady(t, llm.LlmEndpointConfig{BaseURL: "https://b/v1", APIKey: "****1234", Model: "glm-4-flash"})
+
+	f.page.onTestConnection(llm.LlmEndpointConfig{BaseURL: "https://b/v1"}, storage.SlotBlack)
+	if f.page.testID == "" {
+		t.Fatal("test request should record its requestId")
+	}
+	f.page.OnAppEvent(LlmTestDone{RequestID: "test-stale", OK: true, Message: "过期回执"})
+	if f.page.configCard.testResult != "" {
+		t.Fatalf("stale test receipt must be dropped, got %q", f.page.configCard.testResult)
+	}
+	f.page.OnAppEvent(LlmTestDone{RequestID: f.page.testID, OK: true, Message: "连接成功"})
+	if f.page.configCard.testResult != "连接成功" {
+		t.Fatalf("matched receipt should backfill, got %q", f.page.configCard.testResult)
+	}
+	if f.page.testID != "" {
+		t.Fatal("testID should clear after matched receipt")
+	}
+}

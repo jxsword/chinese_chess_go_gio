@@ -80,6 +80,10 @@ type LlmVsLlmPage struct {
 	restoreID      string
 	restorePending bool
 
+	// 测试连接在途回执 id（双卡定向，迟到回执按 id 丢弃，#G5）
+	testRedID   string
+	testBlackID string
+
 	persistSeq   int
 	saveInFlight int // 双槽位保存计数（两回执齐 → toast）
 
@@ -303,8 +307,14 @@ func (p *LlmVsLlmPage) OnAppEvent(payload any) {
 			p.msgArea.appendLine("〔请求失败〕" + ev.Message)
 		}
 	case LlmTestDone:
-		p.redCard.SetTestResult(ev.OK, ev.Message)
-		p.blackCard.SetTestResult(ev.OK, ev.Message)
+		switch ev.RequestID {
+		case p.testRedID:
+			p.testRedID = ""
+			p.redCard.SetTestResult(ev.OK, ev.Message)
+		case p.testBlackID:
+			p.testBlackID = ""
+			p.blackCard.SetTestResult(ev.OK, ev.Message)
+		}
 	case PasteTextDone:
 		p.redCard.ApplyPaste(ev.Target, ev.Text, ev.Err)
 		p.blackCard.ApplyPaste(ev.Target, ev.Text, ev.Err)
@@ -510,13 +520,12 @@ func (p *LlmVsLlmPage) pump() {
 		AdvisorDifficulty: p.gameSettings.AdvisorDifficulty,
 		MaxAttempts:       p.gameSettings.MaxAttempts,
 		Fallback:          p.gameSettings.Fallback,
-		OnAttempt:         p.onAttempt,
+		// OnAttempt 由走子 goroutine 调用——id 值捕获（构造时定死），禁止读
+		// 页面字段（moveRequest 主 goroutine 可写，#G3/#G5 收口）。
+		OnAttempt: func(n, total int) {
+			p.env.Emit(id, LlmAttemptProgress{RequestID: id, N: n, Total: total}, nil)
+		},
 	})
-}
-
-// onAttempt 尝试进度回调（后台 goroutine → 事件总线）。
-func (p *LlmVsLlmPage) onAttempt(n, total int) {
-	p.env.Emit(p.moveRequest, LlmAttemptProgress{RequestID: p.moveRequest, N: n, Total: total}, nil)
 }
 
 // genMatch 当前代次校验（在途期间可能已停止/暂停/重开：作废结果）。
@@ -671,7 +680,8 @@ func (p *LlmVsLlmPage) onRedTest(cfg llm.LlmEndpointConfig, slot string) {
 		p.redCard.SetTestResult(false, "连接失败：测试通道不可用")
 		return
 	}
-	p.llm.TestConnectionAsync(p.env.NewRequestID("test-red"), cfg, slot)
+	p.testRedID = p.env.NewRequestID("test-red")
+	p.llm.TestConnectionAsync(p.testRedID, cfg, slot)
 }
 
 func (p *LlmVsLlmPage) onBlackTest(cfg llm.LlmEndpointConfig, slot string) {
@@ -679,7 +689,8 @@ func (p *LlmVsLlmPage) onBlackTest(cfg llm.LlmEndpointConfig, slot string) {
 		p.blackCard.SetTestResult(false, "连接失败：测试通道不可用")
 		return
 	}
-	p.llm.TestConnectionAsync(p.env.NewRequestID("test-black"), cfg, slot)
+	p.testBlackID = p.env.NewRequestID("test-black")
+	p.llm.TestConnectionAsync(p.testBlackID, cfg, slot)
 }
 
 func (p *LlmVsLlmPage) onRedPaste(target int) {

@@ -80,6 +80,7 @@ type HumanVsLlmPage struct {
 	attemptN     int
 	attemptTotal int
 	llmNote      string
+	testID       string // 测试连接在途回执 id（迟到回执按 id 丢弃，#G5）
 
 	// 进页恢复
 	restoreID      string
@@ -308,7 +309,10 @@ func (p *HumanVsLlmPage) OnAppEvent(payload any) {
 			p.msgArea.appendLine("〔请求失败〕" + ev.Message)
 		}
 	case LlmTestDone:
-		p.configCard.SetTestResult(ev.OK, ev.Message)
+		if ev.RequestID == p.testID {
+			p.testID = ""
+			p.configCard.SetTestResult(ev.OK, ev.Message)
+		}
 	case PasteTextDone:
 		p.configCard.ApplyPaste(ev.Target, ev.Text, ev.Err)
 	case LlmPersistTick:
@@ -447,13 +451,12 @@ func (p *HumanVsLlmPage) triggerLlmMove() {
 		AdvisorDifficulty: p.gameSettings.AdvisorDifficulty,
 		MaxAttempts:       p.gameSettings.MaxAttempts,
 		Fallback:          p.gameSettings.Fallback,
-		OnAttempt:         p.onAttempt,
+		// OnAttempt 由走子 goroutine 调用——id 值捕获（构造时定死），禁止读
+		// 页面字段（llmRequestID 主 goroutine 可写，#G3/#G5 收口）。
+		OnAttempt: func(n, total int) {
+			p.env.Emit(id, LlmAttemptProgress{RequestID: id, N: n, Total: total}, nil)
+		},
 	})
-}
-
-// onAttempt 尝试进度回调（后台 goroutine → 事件回主循环，#G3 正方向）。
-func (p *HumanVsLlmPage) onAttempt(n, total int) {
-	p.env.Emit(p.llmRequestID, LlmAttemptProgress{RequestID: p.llmRequestID, N: n, Total: total}, nil)
 }
 
 // abandonLlm 仅作废在途应手（不解锁——undo 路径锁由重触发接管，上游 seq++ 语义）。
@@ -686,7 +689,8 @@ func (p *HumanVsLlmPage) onTestConnection(cfg llm.LlmEndpointConfig, slot string
 	if p.mirrored {
 		cfg, authSlot = p.redConfig, humanVsLlmRedSlot
 	}
-	p.llm.TestConnectionAsync(p.env.NewRequestID("test"), cfg, authSlot)
+	p.testID = p.env.NewRequestID("test")
+	p.llm.TestConnectionAsync(p.testID, cfg, authSlot)
 }
 
 // onPasteRequest KG-004 可靠粘贴（异步化；目标字段定向回填）。
