@@ -77,6 +77,15 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
   lipo 报 "same architectures (arm64)"。修复=显式 GOARCH=amd64 + `lipo -info` 自证
   （commit f283a20）；两腿构建本身均成功（cgo 的 -arch 由 Go 自动传 clang），
   universal 后续链路（.app/dmg/冒烟）不变。
+- **第三轮（run 37629743328）ubuntu+macOS 双失败，均为根因级修复**：
+  ① Linux 冒烟——应用日志 `gl: no OpenGL implementation could be loaded (tried
+  ["libGLESv2.so.3.0" "libGLESv2.so.2"])`：gio 运行时 dlopen libGLESv2，dev 依赖不
+  携带该运行时库；补装 `libgles2 libegl1`，并在本机 xvfb 等价环境实跑同一命令复验
+  （exit=124 存活满 10s）。② macOS——`undefined: Functions`：交叉架构时 Go 默认
+  CGO_ENABLED=0，internal/gl 的 cgo 实现文件 gl_unix.go 被整文件排除；两腿显式
+  CGO_ENABLED=1（Go cgo 按 GOARCH 自动传 -arch 交叉可行）。commit 5c403f1。
+  复审口径：此后 release.yml 其余步骤均有实测背书（Windows 腿全绿/Linux 打包本地
+  演练/标准工具链），冒烟命令与 CI 逐字节一致。
 
 ## 请手测清单（M7'，用户执行）
 
