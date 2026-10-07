@@ -78,6 +78,10 @@ type CorpusPage struct {
 	pgnSearchEditor   widget.Editor
 	pasteSearchBtn    widget.Clickable
 	pastePgnBtn       widget.Clickable
+	pastePathBtn      widget.Clickable
+	pathEditor        widget.Editor
+	usePathBtn        widget.Clickable
+	resetPathBtn      widget.Clickable
 	onlyEndgame       widget.Bool
 	diffClicks        [6]widget.Clickable
 	sortClicks        [3]widget.Clickable
@@ -117,6 +121,7 @@ func NewCorpusPage(env CorpusEnv, hooks CorpusHooks) *CorpusPage {
 	}
 	p.searchEditor.SingleLine = true
 	p.pgnSearchEditor.SingleLine = true
+	p.pathEditor.SingleLine = true
 	p.replay = NewReplayView(env.Emit)
 	p.replay.OnBattle = func(mode BattleMode, fen, side string) {
 		if hooks.OnBattle != nil {
@@ -213,6 +218,7 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 const (
 	pasteTargetCorpusSearch = iota
 	pasteTargetPgnSearch
+	pasteTargetCorpusPath
 )
 
 // requestPaste 发起异步粘贴（I/O 在后台 goroutine，回执经事件总线——铁律 #G3）。
@@ -232,6 +238,8 @@ func (p *CorpusPage) applyPaste(target int, text string, err error) {
 		p.searchEditor.SetText(text)
 	case pasteTargetPgnSearch:
 		p.pgnSearchEditor.SetText(text)
+	case pasteTargetCorpusPath:
+		p.pathEditor.SetText(strings.TrimSpace(text))
 	}
 }
 
@@ -310,6 +318,9 @@ func (p *CorpusPage) handleEvents(gtx layout.Context) {
 	if p.pastePgnBtn.Clicked(gtx) {
 		p.requestPaste(pasteTargetPgnSearch)
 	}
+	if p.pastePathBtn.Clicked(gtx) {
+		p.requestPaste(pasteTargetCorpusPath)
+	}
 	// PGN 行点击
 	if p.store.PgnPath != "" && p.store.ViewingPuzzle == nil && !p.store.PgnLoading {
 		filtered := p.pgnVisible()
@@ -358,6 +369,22 @@ func (p *CorpusPage) handleEvents(gtx layout.Context) {
 	} else if p.closeDetailBtn.Clicked(gtx) {
 		p.store.ClosePuzzle()
 	}
+	// 导入本地语料目录（D-005：保存路径到设置，不安装到下载位置）
+	if p.usePathBtn.Clicked(gtx) {
+		dir := strings.TrimSpace(p.pathEditor.Text())
+		if dir == "" {
+			p.message = "请先输入或粘贴语料目录的绝对路径"
+			return
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			p.message = fmt.Sprintf("目录不存在或不可读：%s", dir)
+			return
+		}
+		p.setUserPath(dir)
+	}
+	if p.resetPathBtn.Clicked(gtx) {
+		p.setUserPath("")
+	}
 	// 下载按钮
 	if p.downloadBtn.Clicked(gtx) && !p.downloading {
 		p.startDownload()
@@ -365,6 +392,32 @@ func (p *CorpusPage) handleEvents(gtx layout.Context) {
 	if p.cancelDownloadBtn.Clicked(gtx) && p.downloading {
 		p.cancelDownload()
 	}
+}
+
+// corpusUserPathKey 语料目录设置键（07 文档 §3 corpus.userPath；app 侧同值）。
+const corpusUserPathKey = "corpus.userPath"
+
+// setUserPath 写入语料目录设置并重扫（dir 空 = 恢复默认解析优先级；
+// ResolveCorpusDir：用户设置 > legacy > 平台默认——用户路径优先，不复制
+// 不安装到下载位置）。
+func (p *CorpusPage) setUserPath(dir string) {
+	if p.env.Settings == nil {
+		p.message = "本地存储不可用，无法保存目录设置"
+		return
+	}
+	var err error
+	if dir == "" {
+		err = p.env.Settings.Delete(corpusUserPathKey)
+	} else {
+		err = p.env.Settings.Set(corpusUserPathKey, dir)
+	}
+	if err != nil {
+		p.message = "保存目录设置失败：" + err.Error()
+		return
+	}
+	p.message = ""
+	p.cancelBus(p.store.InFlightID())
+	p.store.Load(p.newRequestID("corpus-scan"))
 }
 
 func (p *CorpusPage) startDownload() {
@@ -451,10 +504,25 @@ func (p *CorpusPage) layoutMissingGuide(gtx layout.Context) layout.Dimensions {
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				l := material.Body2(PageTheme, "提示：也可手动将语料目录放置到期望路径后重新进入本页（目录选择功能待文件对话框方案定案）")
-				l.Color = ThemeSeedDark
-				l.TextSize = unit.Sp(12)
-				return layout.Inset{Top: unit.Dp(16)}.Layout(gtx, l.Layout)
+				l := material.Body2(PageTheme, "或导入本地语料目录（保存路径设置，不移动/复制文件）：")
+				l.Color = ThemeOnSurface
+				return layout.Inset{Top: unit.Dp(20), Bottom: unit.Dp(6)}.Layout(gtx, l.Layout)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return layoutEditorBox(gtx, &p.pathEditor, "输入或粘贴语料目录的绝对路径")
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, p.smallPasteButton(&p.pastePathBtn))
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, p.simpleButton(&p.usePathBtn, "使用该目录", true))
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, p.simpleButton(&p.resetPathBtn, "恢复默认", false))
+					}),
+				)
 			}),
 		)
 	})

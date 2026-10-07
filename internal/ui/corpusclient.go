@@ -28,6 +28,8 @@ type CorpusEnv struct {
 	Root func() string
 	// IO 语料 I/O 注入（nil = 生产复制物实现；性能实测/测试注入）。
 	IO state.CorpusIO
+	// Settings 设置存储（导入本地语料目录：corpus.userPath 读写；nil = 无设置面）。
+	Settings *storage.Settings
 }
 
 // goCorpusDriver 生产驱动：fn 在独立 goroutine 执行（阻塞 I/O 不进主循环）。

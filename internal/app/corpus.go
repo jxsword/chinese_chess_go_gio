@@ -52,5 +52,6 @@ func (w *Window) corpusEnv() ui.CorpusEnv {
 		Cancel:       w.Cancel,
 		NewRequestID: newRequestID,
 		Root:         w.corpusRoot,
+		Settings:     w.store.Settings(),
 	}
 }
