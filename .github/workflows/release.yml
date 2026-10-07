@@ -81,9 +81,12 @@ jobs:
           VER: ${{ github.ref_name }}
         run: |
           # Gio macOS 需 cgo（Metal），不能一次交叉出 universal：本机双架构 + lipo。
-          go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-amd64 .
+          # macos-latest 跑者为 arm64 裸机——amd64 腿必须显式 GOARCH（裸 go build
+          # 产出宿主架构，lipo 会报 same architectures）；cgo 的 -arch 由 Go 自动传 clang。
+          GOARCH=amd64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-amd64 .
           GOARCH=arm64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-arm64 .
           lipo -create -output build/bin/chinese-chess-ultra-gio build/bin/gio-amd64 build/bin/gio-arm64
+          lipo -info build/bin/chinese-chess-ultra-gio
 
       # ---- 启动冒烟（验证门：三平台产物 CI 冒烟可启动，09 §7 构建门）----
       # 判据 = 进程存活满 10s（GUI 应用无 stdout 协议面，存活即"可启动"）。
