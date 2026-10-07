@@ -81,10 +81,12 @@ jobs:
           VER: ${{ github.ref_name }}
         run: |
           # Gio macOS 需 cgo（Metal），不能一次交叉出 universal：本机双架构 + lipo。
+          # 两腿必须显式 CGO_ENABLED=1——交叉架构（arm64 裸机出 amd64）时 Go 默认
+          # 关 cgo，gio internal/gl 的 cgo 实现文件被整文件排除（undefined: Functions）。
           # macos-latest 跑者为 arm64 裸机——amd64 腿必须显式 GOARCH（裸 go build
           # 产出宿主架构，lipo 会报 same architectures）；cgo 的 -arch 由 Go 自动传 clang。
-          GOARCH=amd64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-amd64 .
-          GOARCH=arm64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-arm64 .
+          CGO_ENABLED=1 GOARCH=amd64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-amd64 .
+          CGO_ENABLED=1 GOARCH=arm64 go build -trimpath -ldflags "-X main.version=${VER#v}" -o build/bin/gio-arm64 .
           lipo -create -output build/bin/chinese-chess-ultra-gio build/bin/gio-amd64 build/bin/gio-arm64
           lipo -info build/bin/chinese-chess-ultra-gio
 
@@ -93,7 +95,7 @@ jobs:
       - name: Smoke (Linux, xvfb + lavapipe 软渲染)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1 libgles2 libegl1
           set +e
           # 显式 24bit 屏 + 软渲染（POC-5 兜底口径）：xvfb 默认 8bit 屏深会导致 GL/EGL 初始化失败假阴性。
           LIBGL_ALWAYS_SOFTWARE=1 timeout 10 xvfb-run -a -s "-screen 0 1280x1024x24" ./build/bin/chinese-chess-ultra-gio
