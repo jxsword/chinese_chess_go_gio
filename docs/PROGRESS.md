@@ -86,6 +86,10 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
   CGO_ENABLED=1（Go cgo 按 GOARCH 自动传 -arch 交叉可行）。commit 5c403f1。
   复审口径：此后 release.yml 其余步骤均有实测背书（Windows 腿全绿/Linux 打包本地
   演练/标准工具链），冒烟命令与 CI 逐字节一致。
+- **第四轮（run 37632342802）：三平台腿全绿，draft 上传成功，仅 Verify 自校验误报**——
+  EXPECTED 手写顺序与 jq sort 的 ASCII 序不一致（'-' 0x2D < '_' 0x5F，deb 实际排最后）；
+  改为同规则 `LC_ALL=C sort | paste -sd,` 生成，本地以该轮真实资产名单模拟比较 MATCH ✓
+  （commit d001bbc）。**三平台产物+Draft Release 全链路至此打通**。
 
 ## 请手测清单（M7'，用户执行）
 
