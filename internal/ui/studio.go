@@ -17,6 +17,7 @@ package ui
 //   - 整体校验五条（state.ValidateStudioPosition）不通过时 toast + 面板列问题。
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -168,6 +169,26 @@ type StudioPage struct {
 	corrBtn         widget.Clickable // 摆盘校正（切摆盘校验 Tab 点击纠错）
 	revisionBtn     widget.Clickable // 重新识别（重新提交）
 	adoptBtn        widget.Clickable // 直接采用（切求解 Tab）
+
+	// 求解辅助（T6'.4，05 §6：提议→裁判→注释，失败不影响求解照常进行）
+	assistRequest string
+	// assistRunner 提议执行面（nil = 复制物 ProposeSolveFirstMove + 流式
+	// transport；测试注入 fake——00 §4"测试可注入 fake"口径）。
+	assistRunner  func(requestID string, board *rules.Board, cfg llm.LlmEndpointConfig, authSlot string)
+	assistCancel  context.CancelFunc
+	verifyRequest string
+	assistCode    string
+	assistIdea    string
+	llmNote       string
+
+	// 研究助手配置弹窗（T6'.4，AssistantConfigDialog 翻译）
+	assistantOpen   bool
+	assistantCard   *LlmConfigCard
+	assistantConfig llm.LlmEndpointConfig
+	asstSaveBtn     widget.Clickable
+	asstCancelBtn   widget.Clickable
+	assistTestID    string
+	testLlm         *LlmClient
 }
 
 // visionSlotsLoaded 三槽位配置是否齐（DR-009 借用解析前置）。
@@ -310,14 +331,158 @@ func (p *StudioPage) startSolve() {
 	p.sheet = nil
 	p.pendingSheet = nil
 	p.solveStart = time.Now()
+	p.llmNote = ""
+	p.assistCode = ""
+	p.assistIdea = ""
 	p.solveGen++
 	p.startSolveTicker()
 	p.beginSolve()
 }
 
-// beginSolve 求解编排入口（T6'.4 在此前插入 LLM 求解辅助段——提议→裁判→注释，
-// 失败不影响求解照常进行）。
+// beginSolve 求解编排入口：勾选大模型辅助时先跑辅助段（提议→裁判→注释），
+// 失败不影响求解照常进行（05 §6 时序）。
 func (p *StudioPage) beginSolve() {
+	if p.useLlmOn {
+		p.runSolveAssist()
+		return
+	}
+	p.submitSolve()
+}
+
+// runSolveAssist LLM 求解辅助段（05 §6）。DR-009：助手槽全空时运行时借用
+// 对战配置（黑→红，仅本次请求内存、不写入助手槽），toast 提示来源。
+// 提议在编排 goroutine 内直调复制物 ProposeSolveFirstMove（#G3：只 emit 回执），
+// 裁判经 solver.Runner solve:win:done 回主循环，注释最终写入棋谱 llmNote。
+func (p *StudioPage) runSolveAssist() {
+	if !p.visionSlotsLoaded() {
+		p.submitSolve() // 配置未就绪：静默跳过辅助
+		return
+	}
+	resolved := state.ResolveAssistantConfig(p.asstConfig, p.blkConfig, p.redConfig)
+	if resolved.Source != state.AssistantSourceAssistant && resolved.Source != "" {
+		p.showToast(fmt.Sprintf("研究助手未配置，已临时借用%s对战配置", state.AssistantSourceLabel(resolved.Source)))
+	}
+	if resolved.Config == nil {
+		p.submitSolve()
+		return
+	}
+	board, err := rules.FromFen(p.solveFen)
+	if err != nil {
+		p.submitSolve()
+		return
+	}
+	p.assistRequest = p.newID("assist")
+	ctx, cancel := context.WithCancel(context.Background())
+	p.assistCancel = cancel
+	transport := &moveTransport{
+		inner:   llm.NewStreamTransport(p.idleSecs),
+		outerID: p.assistRequest,
+		resolve: p.resolveKey,
+		emit:    p.env.Emit,
+	}
+	cfg := *resolved.Config
+	authSlot := resolved.AuthSlot
+	requestID := p.assistRequest
+	if p.assistRunner != nil {
+		p.assistRunner(requestID, board, cfg, authSlot) // 测试注入：同步回执
+		cancel()
+		return
+	}
+	go func() {
+		defer cancel()
+		result, err := llm.ProposeSolveFirstMove(ctx, board, cfg, transport, llm.SolveAssistOptions{AuthSlot: authSlot})
+		done := AssistProposalDone{RequestID: requestID, Proposal: result.Proposal, Message: result.Message}
+		if err != nil {
+			done.Err = err
+		}
+		p.env.Emit("", done, nil)
+	}()
+}
+
+// resolveKey 槽位完整 Key 注入面（仅供传输层；#G7 返回值不进 UI/日志）。
+func (p *StudioPage) resolveKey(slot string) string {
+	if p.env.Store == nil {
+		return ""
+	}
+	return p.env.Store.ResolveAPIKey(slot)
+}
+
+// idleSecs 空闲超时秒数（llm_settings_* 驱动；transport 内部 clamp 5~600）。
+func (p *StudioPage) idleSecs() int {
+	if p.env.Settings == nil {
+		return 0
+	}
+	return llm.ResolveTimeoutSeconds(p.env.Settings.Get(llm.SettingKeyTimeoutSeconds))
+}
+
+// onAssistProposalDone 提议回执（主 goroutine）：注释生成口径 = 上游
+// runSolveAssist 逐字；提议有效 → 归一化解码后经求解器裁判（solve:win:done）。
+func (p *StudioPage) onAssistProposalDone(ev AssistProposalDone) {
+	if ev.RequestID != p.assistRequest || p.disposed {
+		return // 迟到/非当前请求（#G5）
+	}
+	p.assistRequest = ""
+	p.assistCancel = nil
+	switch {
+	case ev.Err != nil:
+		p.llmNote = fmt.Sprintf("大模型辅助调用失败：%s", ev.Err.Error())
+		p.submitSolve()
+	case ev.Proposal.FirstMoveCode == "":
+		p.llmNote = fmt.Sprintf("大模型辅助未给出有效提议（%s）", ev.Message)
+		p.submitSolve()
+	default:
+		// extract 返回 "h2-e2" 格式；解析前归一化掉分隔符（upstream llmAssist）。
+		normalized := normalizeAssistCode(ev.Proposal.FirstMoveCode)
+		if len(normalized) != 4 {
+			p.submitSolve() // 无效提议：无注释（upstream 返回 null）
+			return
+		}
+		from := llm.DecodeCell(normalized[:2])
+		to := llm.DecodeCell(normalized[2:])
+		if from == nil || to == nil {
+			p.submitSolve()
+			return
+		}
+		p.assistCode = ev.Proposal.FirstMoveCode
+		p.assistIdea = ev.Proposal.Idea
+		p.verifyRequest = p.newID("verify")
+		p.solver.IsWinningFirstMoveAsync(p.verifyRequest, p.solveFen, rules.Move{From: *from, To: *to},
+			solveDepthOptions[p.depthIdx].plies, solveTimeOptions[p.timeIdx].ms)
+	}
+}
+
+// normalizeAssistCode 提议码归一化（仅保留 a-i/0-9，upstream replaceAll）。
+func normalizeAssistCode(code string) string {
+	var b strings.Builder
+	for _, r := range code {
+		if (r >= 'a' && r <= 'i') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// onSolveWinDone 裁判回执（主 goroutine）：注释口径 = 上游 runSolveAssist 逐字；
+// 裁判失败按"调用失败"生成说明，求解照常进行。
+func (p *StudioPage) onSolveWinDone(ev SolveWinDone) {
+	if ev.RequestID != p.verifyRequest || p.disposed {
+		return
+	}
+	p.verifyRequest = ""
+	suffix := ""
+	if p.assistIdea != "" {
+		suffix = fmt.Sprintf("；思路: %s", p.assistIdea)
+	}
+	switch {
+	case ev.Err != nil:
+		p.llmNote = fmt.Sprintf("大模型辅助调用失败：%s", ev.Err.Error())
+	case ev.Win:
+		p.llmNote = fmt.Sprintf("大模型首选 %s（已验证为必胜着法）%s", p.assistCode, suffix)
+	default:
+		p.llmNote = fmt.Sprintf("大模型首选 %s 未通过求解器验证，已忽略%s", p.assistCode, suffix)
+	}
+	p.assistCode = ""
+	p.assistIdea = ""
 	p.submitSolve()
 }
 
@@ -373,6 +538,7 @@ func (p *StudioPage) onSolveDone(ev SolveDone) {
 	p.pendingSheet = &solveSheet{
 		fen:     p.solveFen,
 		result:  *ev.Result,
+		llmNote: p.llmNote,
 		redTurn: p.redTurn,
 	}
 	p.persistSolveRecord()
@@ -652,7 +818,7 @@ func (p *StudioPage) showToast(message string) {
 }
 
 // modalOpen 弹窗层是否打开（结果面板/启动器；遮罩拦截底层交互——KG-008 收口）。
-func (p *StudioPage) modalOpen() bool { return p.sheetOpen || p.launcher.Opened() }
+func (p *StudioPage) modalOpen() bool { return p.sheetOpen || p.launcher.Opened() || p.assistantOpen }
 
 // OnAppEvent 事件总线回执（主 goroutine 消费）。
 func (p *StudioPage) OnAppEvent(payload any) {
@@ -677,6 +843,23 @@ func (p *StudioPage) OnAppEvent(payload any) {
 		p.onFilePicked(ev)
 	case VisionReadDone:
 		p.onVisionDone(ev)
+	case AssistProposalDone:
+		p.onAssistProposalDone(ev)
+	case SolveWinDone:
+		p.onSolveWinDone(ev)
+	case LlmTestDone:
+		if ev.RequestID == p.assistTestID && p.assistantCard != nil {
+			p.assistTestID = ""
+			p.assistantCard.SetTestResult(ev.OK, ev.Message)
+		}
+	case PasteTextDone:
+		if p.assistantCard != nil {
+			p.assistantCard.ApplyPaste(ev.Target, ev.Text, ev.Err)
+		}
+	case SecureSlotSaved:
+		if ev.Slot == storage.SlotAssistant && p.assistantOpen {
+			p.onAssistantSaved(ev)
+		}
 	}
 }
 
@@ -696,6 +879,18 @@ func (p *StudioPage) Dispose() {
 	// K33：识图请求无中途取消入口——在途回执经 disposed 标志与 requestId
 	// 双重丢弃，迟到结果不落盘面。
 	p.reading = false
+	// 求解辅助：ctx 取消在途提议；裁判请求双收口取消（#G5）
+	if p.assistRequest != "" {
+		if p.assistCancel != nil {
+			p.assistCancel()
+		}
+		p.assistRequest = ""
+	}
+	if p.verifyRequest != "" {
+		p.solver.Cancel(p.verifyRequest)
+		p.verifyRequest = ""
+	}
+	p.closeAssistantDialog()
 	p.launcher.Close()
 }
 
@@ -1170,6 +1365,15 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 	if p.sheetOpen && p.sheet != nil {
 		p.layoutSheet(gtx)
 	}
+	if p.assistantOpen && p.assistantCard != nil {
+		if p.asstCancelBtn.Clicked(gtx) {
+			p.closeAssistantDialog()
+		}
+		if p.asstSaveBtn.Clicked(gtx) {
+			p.saveAssistant()
+		}
+		p.layoutAssistantDialog(gtx)
+	}
 	if p.launcher.Opened() && p.sheet != nil {
 		p.launcher.Layout(gtx, p.launchBattle)
 	}
@@ -1179,9 +1383,121 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
-// openAssistantDialog 研究助手配置弹窗（T6'.4 落地；此前占位提示）。
+// openAssistantDialog 研究助手配置弹窗（T6'.4，AssistantConfigDialog 翻译：
+// 求解辅助与棋盘识图共用的助手槽位，预设为视觉理解模型清单；掩码回显）。
 func (p *StudioPage) openAssistantDialog() {
-	p.showToast("研究助手配置弹窗随 T6'.4 落地")
+	cfg := llm.LlmEndpointConfig{}
+	if p.asstConfig != nil {
+		cfg = *p.asstConfig
+	}
+	p.assistantConfig = cfg
+	p.assistantCard = NewLlmConfigCard("求解辅助 / 识图（需视觉理解模型）", storage.SlotAssistant,
+		llm.VisionLlmPresets, cfg, func(c llm.LlmEndpointConfig) { p.assistantConfig = c })
+	p.assistantCard.OnPaste = p.onAssistantPaste
+	p.assistantCard.OnTestConnection = p.onAssistantTest
+	p.assistantOpen = true
+}
+
+func (p *StudioPage) closeAssistantDialog() {
+	p.assistantOpen = false
+	p.assistantCard = nil
+	p.assistTestID = ""
+}
+
+// onAssistantSaved 助手槽写入回执：toast + 重载槽位（掩码回读刷新）+ 关闭。
+func (p *StudioPage) onAssistantSaved(ev SecureSlotSaved) {
+	if p.env.Store != nil {
+		p.env.Store.LoadSlotAsync(p.newID("cfg-asst"), storage.SlotAssistant)
+	}
+	switch {
+	case ev.Err != nil:
+		p.showToast("保存失败：本地存储不可用")
+	case ev.Stored == "plainFallback":
+		p.showToast("模型配置已保存（系统安全存储不可用，已明文保存到本地）")
+	default:
+		p.showToast("模型配置已保存")
+	}
+	p.closeAssistantDialog()
+}
+
+// onAssistantTest 测试连接（经页内 LlmClient 测试通道；DR-005 关闭参数恒发）。
+func (p *StudioPage) onAssistantTest(cfg llm.LlmEndpointConfig, slot string) {
+	if p.testLlm == nil {
+		p.testLlm = NewLlmClient(p.env.GameEnv, p.resolveKey, p.idleSecs)
+	}
+	p.assistTestID = p.newID("test")
+	p.testLlm.TestConnectionAsync(p.assistTestID, cfg, slot)
+}
+
+// onAssistantPaste KG-004 可靠粘贴（目标字段定向回填）。
+func (p *StudioPage) onAssistantPaste(target int) {
+	pasteFromWindowsAsync(func(text string, err error) {
+		p.env.Emit("", PasteTextDone{Target: target, Text: text, Err: err}, nil)
+	})
+}
+
+// saveAssistant 助手槽保存（掩码合并由存储层承担——防错 #8）。
+func (p *StudioPage) saveAssistant() {
+	if p.env.Store == nil {
+		p.showToast("保存失败：本地存储不可用")
+		return
+	}
+	p.env.Store.SaveSlotAsync(p.newID("save-asst"), storage.SlotAssistant, p.assistantConfig)
+}
+
+// layoutAssistantDialog 助手配置弹窗（遮罩 + 面板：配置卡 + 取消/保存；
+// KG-009 宏量测居中口径）。
+func (p *StudioPage) layoutAssistantDialog(gtx layout.Context) layout.Dimensions {
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, rgba(0x000000, 0.45))
+
+	W, H := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
+	panelW := gtx.Dp(unit.Dp(460))
+	if W < panelW {
+		panelW = W
+	}
+	// 量测：内容高度自适应（配置卡 + 按钮行）
+	macro := op.Record(gtx.Ops)
+	mctx := gtx
+	mctx.Constraints = layout.Constraints{Max: image.Point{X: panelW, Y: H}}
+	dims := layout.UniformInset(unit.Dp(16)).Layout(mctx, p.assistantPanel)
+	call := macro.Stop()
+
+	panelH := dims.Size.Y
+	if panelH > H*90/100 {
+		panelH = H * 90 / 100
+	}
+	tr := op.Offset(image.Pt((W-panelW)/2, (H-panelH)/2)).Push(gtx.Ops)
+	defer tr.Pop()
+	defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: panelW, Y: panelH}}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, ThemeSurface)
+	call.Add(gtx.Ops)
+	return layout.Dimensions{Size: gtx.Constraints.Max}
+}
+
+func (p *StudioPage) assistantPanel(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			t := material.H6(PageTheme, "研究助手模型")
+			t.Color = ThemeOnSurface
+			return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, t.Layout)
+		}),
+		layout.Rigid(p.assistantCard.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				cancel := material.Button(PageTheme, &p.asstCancelBtn, "取消")
+				cancel.Background = ThemeSurfaceDim
+				cancel.Color = ThemeSeedDark
+				save := material.Button(PageTheme, &p.asstSaveBtn, "保存")
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Right: unit.Dp(10)}.Layout(gtx, cancel.Layout)
+					}),
+					layout.Flexed(1, save.Layout),
+				)
+			})
+		}),
+	)
 }
 
 // launchBattle 进入对战联动（结果面板底部按钮；起点=求解局面 FEN，玩家执求解方）。

@@ -208,6 +208,16 @@ type SolveTick struct {
 	Gen int
 }
 
+// AssistProposalDone 求解辅助提议回执（00 §4 `solve:assist:done`，M6'）：
+// ProposeSolveFirstMove 在编排 goroutine 结算后回主循环；Err 非 nil = 调用
+// 失败/取消（注释按"大模型辅助调用失败"生成，求解照常进行——05 §6）。
+type AssistProposalDone struct {
+	RequestID string
+	Proposal  llm.SolveProposal
+	Message   string
+	Err       error
+}
+
 // SolveDone 求解回执（00 §4 `solve:done`，M6'）。Result 为复制物 wire 结果
 // （status/solutions/elapsed/searchedPlies）；Err 非 nil = 取消/非法 FEN 等。
 type SolveDone struct {
