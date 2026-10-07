@@ -5,7 +5,8 @@
 **M7' 评估 + 打包发布——任务完成，暂停等待用户验收**（2026-10-07）。
 T7'.1 cmd/eval 回归（复制物零改动 + mock 端点 4 profile e2e）、T7'.2 三平台打包资产 +
 release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7'.3 DoD 核对均完成；
-真实端点手测项与打 tag 触发 release.yml 交用户（见"请手测清单（M7'）"）。
+真实端点 eval suite（DoD #4）已通过与上游逐档对比收口；剩余：Release 演练（Windows CI
+修复后重打 tag）、真实端点四项手测（DoD #3）、Windows 形态裁决（见"请手测清单（M7'）"）。
 
 ## 里程碑总览
 
@@ -48,7 +49,21 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
 | 1 | E-F01~F42 全部功能可用（两处既定差异：重复裁决前置、思维链强制关闭） | ✅ M1'~M6' 逐里程碑手测清单已执行并验收通过（含两处既定差异实现） |
 | 2 | 质量门全绿 + 三平台安装产物 | ✅ 本地 gofmt 空/vet 0/`go test ./... -race` 全绿；⏳ 三平台产物待用户推 tag 触发 release.yml（清单 #1） |
 | 3 | 真实 LLM 端点手测（人机 LLM 一整局 + LLM vs LLM 一整局 + 求解辅助 + 识图，思维链关闭生效） | ⏳ 用户执行（清单 #4） |
-| 4 | MatchRunner 四 profile 报告可复现 | ✅ mock 端点协议面已证（16 字段×8 局）；⏳ 真实端点同数量级对比待用户（清单 #5） |
+| 4 | MatchRunner 四 profile 报告可复现 | ✅ **已收口**：真实端点 `--suite`（games=2, maxPlies=120，报告 tmp/eval-report-1791378315130.json）与上游 v1.0 真实端点 suite（tmp/eval-report-1791222734389.json，同口径）逐档对比——baseline-v1 负×2/高失误、p0-prompt-v2 负×2、hybrid-candidate 最强（上游胜×2，本仓胜+和）、hybrid-gate 兜底特征一致（上游 12/8，本仓 17/10）且波动大，四档定性结论逐档吻合、数值同数量级 |
+
+### M7' 真实端点 eval 对比（DoD #4，2026-10-07）
+
+| profile | 上游 v1.0（LLM 战绩/失误/兜底/top3） | Gio 版（LLM 战绩/失误/兜底/top3） |
+|---|---|---|
+| baseline-v1 | 负×2；失误 7/6；兜底 0；9/25、4/11 | 负×2；失误 6/6；兜底 0；8/23、8/23 |
+| p0-prompt-v2 | 负×2；失误 4/5；兜底 0；2/12、6/22 | 负×2；失误 1/4；兜底 0；1/4、2/13 |
+| hybrid-candidate | 胜×2（checkmate）；0 失误；48/57、28/40 | 胜+和（checkmate/move-limit）；失误 2/0；12/16、45/60 |
+| hybrid-gate | 和+负；失误 3/4；兜底 12/8；29/60、19/42 | 负×2；失误 0/4；兜底 17/10；26/50、23/42 |
+
+> 结论：复制物同源下四档定性结论逐档吻合（baseline/p0 弱、candidate 最强、gate 兜底多波动大），
+> 数值同数量级——DoD #4 通过。LLM 侧为非确定性路径，逐位一致仅适用于 randomness=0 确定路径
+> （mock e2e 已证协议面一致）。
+
 
 ### M7' CI 反馈修复轮（2026-10-07，§6.2 流程）
 
@@ -74,9 +89,7 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
    后从应用菜单启动，验证桌面入口/图标。
 3. **真实端点手测（DoD #3）**：应用内配置真实端点（百炼）——人机 LLM 一整局 +
    LLM vs LLM 一整局 + 工作室求解辅助一次 + 识图一次；全程确认无思维链内容出现。
-4. **真实端点 eval suite（DoD #4 收口）**：
-   `LLM_BASE_URL=... LLM_MODEL=... LLM_API_KEY=... go run ./cmd/eval -- --suite`
-   → 报告四档分键齐全，与上游 v1.0 报告同数量级（胜负/兜底率/失误率）。
+4. ~~**真实端点 eval suite（DoD #4 收口）**~~ ✅ 2026-10-07 已执行通过与上游逐档对比（见上表），报告 tmp/eval-report-1791378315130.json。
 5. **Windows 打包形态裁决（DR-G005）**：A 维持裸 exe（当前落地）或 B 升级 NSIS
    （决策矩阵见 design_docs/decision_log.md DR-G005）；裁决后我同步 10 §4 + 决策记录。
 
