@@ -85,7 +85,7 @@ func (c *emitCollector) emitFunc() func(string, any, error) {
 	}
 }
 
-// waitPayload 等待首个回执（响应 goroutine 异步 emit）。
+// waitPayload 等待并弹出首个回执（响应 goroutine 异步 emit；多次调用按序消费）。
 func (c *emitCollector) waitPayload(t *testing.T) (any, error) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -93,6 +93,8 @@ func (c *emitCollector) waitPayload(t *testing.T) (any, error) {
 		c.mu.Lock()
 		if len(c.got) > 0 {
 			payload, err := c.got[0], c.errs[0]
+			c.got = c.got[1:]
+			c.errs = c.errs[1:]
 			c.mu.Unlock()
 			return payload, err
 		}

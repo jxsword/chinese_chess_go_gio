@@ -7,6 +7,7 @@ import (
 	"github.com/jxsword/chinese_chess_go_gio/internal/engine"
 	"github.com/jxsword/chinese_chess_go_gio/internal/llm"
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
+	"github.com/jxsword/chinese_chess_go_gio/internal/solver"
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 )
@@ -196,6 +197,38 @@ type DirPickDone struct {
 // FileSaveDone 保存文件回执（00 §4 `dialog:savefile`，D-006）。Path 为空串 =
 // 用户取消；Err 非 nil = 写盘失败。
 type FileSaveDone struct {
+	RequestID string
+	Path      string
+	Err       error
+}
+
+// SolveDone 求解回执（00 §4 `solve:done`，M6'）。Result 为复制物 wire 结果
+// （status/solutions/elapsed/searchedPlies）；Err 非 nil = 取消/非法 FEN 等。
+type SolveDone struct {
+	RequestID string
+	Result    *solver.WireSolveResult
+	Err       error
+}
+
+// SolveWinDone isWinningFirstMove 裁判回执（00 §4 `solve:win:done`，M6'）：
+// LLM 求解辅助判定模型首着是否必胜（04 §3）。
+type SolveWinDone struct {
+	RequestID string
+	Win       bool
+	Err       error
+}
+
+// VisionReadDone 识图回执（00 §4 `vision:done`，M6'）。Fen 为视觉模型识别
+// 结果组装的盘面 FEN；无中途取消入口（K33），迟到回执按 id 丢弃（#G5）。
+type VisionReadDone struct {
+	RequestID string
+	Fen       string
+	Err       error
+}
+
+// FilePickDone 文件选择回执（00 §4 `dialog:pickfile`，M6'）。Path 为空串 =
+// 用户取消；Err 非 nil = 对话框/所选文件异常。
+type FilePickDone struct {
 	RequestID string
 	Path      string
 	Err       error
