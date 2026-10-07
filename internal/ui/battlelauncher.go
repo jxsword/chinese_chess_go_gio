@@ -55,19 +55,22 @@ func (l *BattleLauncher) handleEvents(gtx layout.Context, onLaunch func(mode Bat
 				return
 			}
 			mode, side := opt.ID, ""
+			target := l.target // Close 清空 target，先捕获（棋谱库启动以 target 计算 FEN）
 			l.Close()
-			onLaunch(mode, side, l.target)
+			onLaunch(mode, side, target)
 			return
 		}
 	}
 	if l.sideStep {
 		switch {
 		case l.sideRedBtn.Clicked(gtx):
+			target := l.target
 			l.Close()
-			onLaunch(BattleHumanVsAi, "red", l.target)
+			onLaunch(BattleHumanVsAi, "red", target)
 		case l.sideBlackBtn.Clicked(gtx):
+			target := l.target
 			l.Close()
-			onLaunch(BattleHumanVsAi, "black", l.target)
+			onLaunch(BattleHumanVsAi, "black", target)
 		}
 	}
 	if l.cancelBtn.Clicked(gtx) {
