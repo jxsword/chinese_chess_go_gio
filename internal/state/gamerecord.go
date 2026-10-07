@@ -5,7 +5,9 @@ package state
 // 纯 Go：仅依赖规则内核（铁律 #G1）。
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
 )
@@ -20,8 +22,9 @@ const (
 	SolveTimeout    SolveStatus = "timeout"
 )
 
-// GameRecordData 棋谱记录（gameRecord.ts GameRecordData，pgnWriter/分享文本消费面）。
+// GameRecordData 棋谱记录（gameRecord.ts GameRecordData，pgnWriter/分享文本/记录库消费面）。
 type GameRecordData struct {
+	ID         int64
 	Title      string
 	Mode       string // GameMode 字符串（'endgame' | 对局模式）
 	InitialFen string
@@ -32,7 +35,98 @@ type GameRecordData struct {
 	BlackName   *string
 	SolveStatus SolveStatus
 	Solutions   [][]string
+	LlmNote     *string
+	Note        *string
 	CreatedAt   int64 // ms；0 = 写出时用当前时间
+}
+
+// ModeLabelOf 模式中文标签（gameRecord.ts modeLabelOf）。
+func ModeLabelOf(mode string) string {
+	switch mode {
+	case "humanVsAi":
+		return "人机对战"
+	case "humanVsHuman":
+		return "双人对弈"
+	case "aiVsAi":
+		return "机机对战"
+	case "humanVsLlm":
+		return "人机(大模型)"
+	case "llmVsLlm":
+		return "大模型对战"
+	case "endgame":
+		return "残局破解"
+	}
+	return mode
+}
+
+// ResultLabel 对局结果中文标签（gameRecord.ts resultLabel）。
+func ResultLabel(result string) string {
+	switch result {
+	case "redWins":
+		return "红方胜"
+	case "blackWins":
+		return "黑方胜"
+	case "draw":
+		return "和棋"
+	}
+	return result
+}
+
+// DefaultRecordTitle 标题缺省自动生成：`YYYY-MM-DD 模式名`（game_record.dart:181-185）。
+func DefaultRecordTitle(mode string, now time.Time) string {
+	return fmt.Sprintf("%d-%02d-%02d %s", now.Year(), int(now.Month()), now.Day(), ModeLabelOf(mode))
+}
+
+// RecordFromSessionInput 保存棋谱的会话输入（RecordSaveDialog → recordFromSession）。
+type RecordFromSessionInput struct {
+	Title     string // 空白 = 自动生成
+	Mode      string
+	FinalFen  string
+	Moves     []rules.Move
+	Result    *string
+	RedName   *string
+	BlackName *string
+	Note      *string
+}
+
+// RecordFromSession 对局会话 → 棋谱记录（gameRecord.ts recordFromSession：
+// 标题自动生成、initialFen 从终局反推逆序悔棋、solveStatus=none）。
+func RecordFromSession(input RecordFromSessionInput, now time.Time) GameRecordData {
+	title := input.Title
+	if strings.TrimSpace(title) == "" {
+		title = DefaultRecordTitle(input.Mode, now)
+	}
+	return GameRecordData{
+		Title:       title,
+		Mode:        input.Mode,
+		InitialFen:  initialFenFromEnd(input.FinalFen, input.Moves),
+		Moves:       append([]rules.Move(nil), input.Moves...),
+		Result:      input.Result,
+		RedName:     input.RedName,
+		BlackName:   input.BlackName,
+		SolveStatus: SolveNone,
+		Solutions:   [][]string{},
+		LlmNote:     nil,
+		Note:        input.Note,
+		CreatedAt:   now.UnixMilli(),
+	}
+}
+
+// initialFenFromEnd 从终局反推初始 FEN：逆序悔棋；数据不一致时尽早止损
+// （game_record.dart:188-195）。
+func initialFenFromEnd(finalFen string, moves []rules.Move) string {
+	board, err := rules.FromFen(finalFen)
+	if err != nil {
+		return finalFen
+	}
+	for i := len(moves) - 1; i >= 0; i-- {
+		m := moves[i]
+		if board.PieceAtP(m.To) == nil {
+			break
+		}
+		board.UndoMove(rules.Move{From: m.From, To: m.To, Captured: m.Captured})
+	}
+	return board.ToFen()
 }
 
 // SolveStatusLabel 求解状态中文标签（gameRecord.ts solveStatusLabel）。
@@ -121,4 +215,61 @@ func IccsFallbackFormat(m rules.Move) string {
 func IsInitialBoardFen(fen string) bool {
 	return strings.SplitN(fen, " ", 2)[0] ==
 		"rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR"
+}
+
+// WriteShareText 分享文本（翻译源 = 上游 shareText.ts；对应 pgn_writer.dart
+// writeShareText，07 文档 §5 F3。协议面：输出经快照测试锁定，改动须显式 review）。
+func WriteShareText(record GameRecordData) string {
+	lines := []string{}
+	lines = append(lines, fmt.Sprintf("【中国象棋 Ultra 棋谱】%s", record.Title))
+	redName := ""
+	if record.RedName != nil {
+		redName = "  红方: " + *record.RedName
+	}
+	blackName := ""
+	if record.BlackName != nil {
+		blackName = "  黑方: " + *record.BlackName
+	}
+	lines = append(lines, fmt.Sprintf("模式: %s%s%s", ModeLabelOf(record.Mode), redName, blackName))
+	if record.Result != nil {
+		lines = append(lines, fmt.Sprintf("结果: %s", ResultLabel(*record.Result)))
+	}
+	if !IsInitialBoardFen(record.InitialFen) {
+		lines = append(lines, fmt.Sprintf("起始 FEN: %s", record.InitialFen))
+	}
+	if record.Note != nil && strings.TrimSpace(*record.Note) != "" {
+		lines = append(lines, fmt.Sprintf("备注: %s", *record.Note))
+	}
+	if len(record.Moves) > 0 {
+		lines = append(lines, "着法（中文记谱）:")
+		notations := ChineseNotations(record.InitialFen, record.Moves)
+		for i := 0; i < len(notations); i += 2 {
+			round := i/2 + 1
+			red := notations[i]
+			black := ""
+			if i+1 < len(notations) {
+				black = notations[i+1]
+			}
+			lines = append(lines, fmt.Sprintf("%d. %s  %s", round, red, black))
+		}
+	}
+	solutions := record.Solutions
+	if len(solutions) > 0 {
+		unique := ""
+		if HasUniqueSolution(record.SolveStatus, solutions) {
+			unique = "，唯一解"
+		}
+		lines = append(lines, fmt.Sprintf("破解之法（%d 条%s）:", len(solutions), unique))
+		for i, solution := range solutions {
+			lines = append(lines, fmt.Sprintf("解法%d: %s", i+1, strings.Join(solution, " ")))
+		}
+	} else if record.SolveStatus == SolveNoSolution {
+		lines = append(lines, "求解结论: 无解（深度上界内已证明）")
+	} else if record.SolveStatus == SolveTimeout {
+		lines = append(lines, "求解结论: 限时内未找到解法")
+	}
+	if record.LlmNote != nil && strings.TrimSpace(*record.LlmNote) != "" {
+		lines = append(lines, fmt.Sprintf("大模型注释: %s", *record.LlmNote))
+	}
+	return strings.Join(lines, "\n")
 }
