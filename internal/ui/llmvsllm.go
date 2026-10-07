@@ -105,6 +105,8 @@ type LlmVsLlmPage struct {
 	saveNowBtn     widget.Clickable
 	newGameBtn     widget.Clickable
 	backBtn        widget.Clickable
+	saveRecordBtn  widget.Clickable
+	saveDialog     *RecordSaveDialog
 
 	confirmingNewGame bool
 	toastText         string
@@ -313,6 +315,13 @@ func (p *LlmVsLlmPage) OnAppEvent(payload any) {
 	case LlmPersistTick:
 		if ev.Seq == p.persistSeq && !p.disposed {
 			p.persistNow()
+		}
+	case RecordSaveDone:
+		if p.saveDialog != nil {
+			p.saveDialog.OnSaved(ev.Err)
+			if ev.Err == nil {
+				p.showToast("棋谱已保存")
+			}
 		}
 	case TimerTick:
 		if p.disposed {
@@ -730,6 +739,9 @@ func (p *LlmVsLlmPage) Dispose() {
 	p.running = false
 	p.paused = false
 	p.board.CancelAnim()
+	if p.saveDialog != nil {
+		p.saveDialog.Dispose()
+	}
 	p.cancelMove()
 	p.cancelPendingRestore()
 	p.persistNow()
@@ -752,7 +764,7 @@ func (p *LlmVsLlmPage) OnClose() {
 // ---- 交互 ----
 
 func (p *LlmVsLlmPage) modalOpen() bool {
-	return p.confirmingNewGame || (p.judge != nil && p.judge.DrawOffer != nil)
+	return p.confirmingNewGame || p.saveDialog != nil || (p.judge != nil && p.judge.DrawOffer != nil)
 }
 
 func (p *LlmVsLlmPage) handleEvents(gtx layout.Context) {
@@ -763,6 +775,7 @@ func (p *LlmVsLlmPage) handleEvents(gtx layout.Context) {
 		p.startStopBtn.Clicked(gtx)
 		p.stopBtn.Clicked(gtx)
 		p.saveNowBtn.Clicked(gtx)
+		p.saveRecordBtn.Clicked(gtx)
 		p.consumeSideChips(gtx, true)
 		p.consumeChoices(gtx, true)
 		return
@@ -772,6 +785,9 @@ func (p *LlmVsLlmPage) handleEvents(gtx layout.Context) {
 	}
 	if p.newGameBtn.Clicked(gtx) {
 		p.confirmingNewGame = true
+	}
+	if p.saveRecordBtn.Clicked(gtx) && p.saveDialog == nil {
+		p.saveDialog = OpenRecordSaveDialog(p.env, string(state.ModeLlmVsLlm), p.store.State(), func() { p.saveDialog = nil })
 	}
 	if p.startStopBtn.Clicked(gtx) {
 		if !p.running {
@@ -873,6 +889,7 @@ func (p *LlmVsLlmPage) layoutHeader(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(p.simpleButton(&p.startStopBtn, startLabel, true)),
 			layout.Rigid(p.simpleButton(&p.stopBtn, "停止", false)),
 			layout.Rigid(p.simpleButton(&p.newGameBtn, "新游戏", false)),
+			layout.Rigid(p.simpleButton(&p.saveRecordBtn, "保存为棋谱", false)),
 		)
 	})
 }
@@ -1119,6 +1136,9 @@ func (p *LlmVsLlmPage) layoutSettingRow(gtx layout.Context, idx int) layout.Dime
 }
 
 func (p *LlmVsLlmPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
+	if p.saveDialog != nil {
+		p.saveDialog.Layout(gtx)
+	}
 	if p.confirmingNewGame {
 		confirmed, canceled := p.newGameDialog.LayoutFull(gtx)
 		switch {

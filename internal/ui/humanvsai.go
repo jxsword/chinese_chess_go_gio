@@ -80,6 +80,8 @@ type HumanVsAiPage struct {
 	saveBtn       widget.Clickable
 	sideRedBtn    widget.Clickable
 	sideBlackBtn  widget.Clickable
+	saveRecordBtn widget.Clickable
+	saveDialog    *RecordSaveDialog
 	diffBtns      [5]widget.Clickable
 	recordsCheck  widget.Bool
 	moveList      layout.List
@@ -252,6 +254,13 @@ func (p *HumanVsAiPage) OnAppEvent(payload any) {
 		}
 	case EngineMoveDone:
 		p.onAiMoveDone(ev)
+	case RecordSaveDone:
+		if p.saveDialog != nil {
+			p.saveDialog.OnSaved(ev.Err)
+			if ev.Err == nil {
+				p.showToast("棋谱已保存")
+			}
+		}
 	case TimerTick:
 		if p.disposed {
 			return
@@ -288,6 +297,9 @@ func (p *HumanVsAiPage) Dispose() {
 	}
 	p.disposed = true
 	p.board.CancelAnim()
+	if p.saveDialog != nil {
+		p.saveDialog.Dispose()
+	}
 	p.cancelAi() // #4/#5：离页取消且丢弃迟到（上游 dispose: gameSeq++ + client.dispose）
 	if p.restorePending {
 		p.env.Cancel(p.restoreID)
@@ -394,6 +406,7 @@ func (p *HumanVsAiPage) handleEvents(gtx layout.Context) {
 		p.newGameBtn.Clicked(gtx)
 		p.undoBtn.Clicked(gtx)
 		p.saveBtn.Clicked(gtx)
+		p.saveRecordBtn.Clicked(gtx)
 		p.sideRedBtn.Clicked(gtx)
 		p.sideBlackBtn.Clicked(gtx)
 		for i := range p.diffBtns {
@@ -406,6 +419,9 @@ func (p *HumanVsAiPage) handleEvents(gtx layout.Context) {
 	}
 	if p.newGameBtn.Clicked(gtx) {
 		p.confirmingNewGame = true
+	}
+	if p.saveRecordBtn.Clicked(gtx) && p.saveDialog == nil {
+		p.saveDialog = OpenRecordSaveDialog(p.env, string(state.ModeHumanVsAi), p.store.State(), func() { p.saveDialog = nil })
 	}
 	if p.undoBtn.Clicked(gtx) {
 		p.undoMove()
@@ -428,7 +444,7 @@ func (p *HumanVsAiPage) handleEvents(gtx layout.Context) {
 
 // modalOpen 任一模态弹窗打开中。
 func (p *HumanVsAiPage) modalOpen() bool {
-	return p.confirmingNewGame || (p.judge != nil && p.judge.DrawOffer != nil)
+	return p.confirmingNewGame || p.saveDialog != nil || (p.judge != nil && p.judge.DrawOffer != nil)
 }
 
 // cancelPendingRestore 取消在途恢复并解锁。
@@ -533,6 +549,7 @@ func (p *HumanVsAiPage) layoutHeader(gtx layout.Context) layout.Dimensions {
 			}),
 			layout.Rigid(p.simpleButton(&p.newGameBtn, "新游戏", true)),
 			layout.Rigid(p.simpleButton(&p.undoBtn, "悔棋", false)),
+			layout.Rigid(p.simpleButton(&p.saveRecordBtn, "保存为棋谱", false)),
 			layout.Rigid(p.simpleButton(&p.saveBtn, "保存棋局", false)),
 		)
 	})
@@ -766,6 +783,9 @@ func (p *HumanVsAiPage) layoutMoveRecords(gtx layout.Context) layout.Dimensions 
 
 // layoutOverlays 弹窗层 + toast（Stack 顶层；弹窗打开时棋盘经 Blocked 禁手）。
 func (p *HumanVsAiPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
+	if p.saveDialog != nil {
+		p.saveDialog.Layout(gtx)
+	}
 	if p.confirmingNewGame {
 		confirmed, canceled := p.newGameDialog.LayoutFull(gtx)
 		switch {

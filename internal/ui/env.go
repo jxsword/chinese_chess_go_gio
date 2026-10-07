@@ -18,6 +18,19 @@ type GameDB interface {
 	SaveSync(mode state.GameMode, fen string, moves [][]int) error
 }
 
+// RecordRepo 记录库异步面（T5'.3，00 §4 `cc:db:records*` 行；requestId 关联，
+// 离页/关闭弹层 Cancel 后迟到回执按 id 丢弃——铁律 #G5）。
+type RecordRepo interface {
+	// RecordsListAsync 后台读记录列表，回执 ui.RecordsListDone（失败降级空列表）。
+	RecordsListAsync(requestID string)
+	// RecordsGetAsync 后台读单条记录，回执 ui.RecordGetDone（Err 非 nil = 失败）。
+	RecordsGetAsync(requestID string, id int64)
+	// RecordsSaveAsync 后台写棋谱记录，回执 ui.RecordSaveDone（成功/失败均回执）。
+	RecordsSaveAsync(requestID string, record state.GameRecordData)
+	// RecordsDeleteAsync 后台删除记录，回执 ui.RecordDeleteDone。
+	RecordsDeleteAsync(requestID string, id int64)
+}
+
 // GameEnv 对局页环境（铁律 #G3：字段与回调仅在主 goroutine 触达；
 // Repo/DB 内部 goroutine 只做 I/O，结果经 Emit 回主循环）。
 type GameEnv struct {
@@ -29,6 +42,8 @@ type GameEnv struct {
 	Repo state.GameRepo
 	// DB 异步 DB 面（取档/手动保存/关闭同步保存）。
 	DB GameDB
+	// Records 记录库异步面（"保存为棋谱"；nil = 测试/降级场景无记录库）。
+	Records RecordRepo
 	// Emit 提交事件回主循环（requestId 可空 = 直通）。
 	Emit func(requestID string, payload any, err error)
 	// Cancel 取消在途异步请求（迟到回执按 id 丢弃）。

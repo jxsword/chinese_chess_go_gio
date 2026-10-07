@@ -187,6 +187,7 @@ func (w *Window) gameEnv() ui.GameEnv {
 		Bus:          w.autoSaveBus,
 		Repo:         w.repo,
 		DB:           w.repo,
+		Records:      w.repo,
 		Emit:         w.emitFunc(),
 		Cancel:       w.Cancel,
 		NewRequestID: newRequestID,

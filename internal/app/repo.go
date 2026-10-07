@@ -99,3 +99,76 @@ func (r *gameRepo) saveSync(mode state.GameMode, fen string, moves [][]int) erro
 	_, err = dao.UpsertForMode(string(mode), fen, moves)
 	return err
 }
+
+// ---- ui.RecordRepo（T5'.3 记录库，00 §4 `cc:db:records*` 行；
+// D-004 勘误：棋谱库入口=记录库页，写入面=对局页"保存为棋谱"）----
+
+// RecordsListAsync 记录列表（后台读 → ui.RecordsListDone）。
+func (r *gameRepo) RecordsListAsync(requestID string) {
+	go func() {
+		dao, err := r.store.DB()
+		if err != nil {
+			r.emit(requestID, ui.RecordsListDone{Records: []storage.GameRecordSummary{}}, nil)
+			return
+		}
+		records, err := dao.RecordSummaries()
+		if err != nil {
+			log.Println("app: 记录列表读取失败:", err)
+			r.emit(requestID, ui.RecordsListDone{Records: []storage.GameRecordSummary{}}, nil)
+			return
+		}
+		r.emit(requestID, ui.RecordsListDone{Records: records}, nil)
+	}()
+}
+
+// RecordsGetAsync 单条记录 → ui.RecordGetDone（Err 非 nil = 读取失败）。
+func (r *gameRepo) RecordsGetAsync(requestID string, id int64) {
+	go func() {
+		dao, err := r.store.DB()
+		if err != nil {
+			r.emit(requestID, ui.RecordGetDone{Err: err}, nil)
+			return
+		}
+		record, err := dao.RecordByID(id)
+		if err != nil {
+			log.Println("app: 记录读取失败:", err)
+			r.emit(requestID, ui.RecordGetDone{Err: err}, nil)
+			return
+		}
+		r.emit(requestID, ui.RecordGetDone{Record: record}, nil)
+	}()
+}
+
+// RecordsSaveAsync 写入棋谱记录 → ui.RecordSaveDone（成功/失败均回执）。
+func (r *gameRepo) RecordsSaveAsync(requestID string, record state.GameRecordData) {
+	go func() {
+		dao, err := r.store.DB()
+		if err != nil {
+			r.emit(requestID, ui.RecordSaveDone{Err: err}, nil)
+			return
+		}
+		st := state.RecordDataToStorage(record)
+		if _, err := dao.InsertRecord(&st); err != nil {
+			log.Println("app: 保存棋谱失败:", err)
+			r.emit(requestID, ui.RecordSaveDone{Err: err}, nil)
+			return
+		}
+		r.emit(requestID, ui.RecordSaveDone{}, nil)
+	}()
+}
+
+// RecordsDeleteAsync 删除棋谱 → ui.RecordDeleteDone。
+func (r *gameRepo) RecordsDeleteAsync(requestID string, id int64) {
+	go func() {
+		dao, err := r.store.DB()
+		if err != nil {
+			r.emit(requestID, ui.RecordDeleteDone{Err: err}, nil)
+			return
+		}
+		err = dao.DeleteRecord(id)
+		if err != nil {
+			log.Println("app: 删除棋谱失败:", err)
+		}
+		r.emit(requestID, ui.RecordDeleteDone{Err: err}, nil)
+	}()
+}

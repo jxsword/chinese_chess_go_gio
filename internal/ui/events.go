@@ -154,3 +154,25 @@ type CorpusDownloadDone struct {
 type ReplayTick struct {
 	Gen int
 }
+
+// RecordsListDone 记录列表回执（00 §4 `cc:db:records:list`，D-004 记录库页）。
+// Err 为 nil 但 Records 空 = 读取失败降级为空列表（上游 catch → []）。
+type RecordsListDone struct {
+	Records []storage.GameRecordSummary
+}
+
+// RecordGetDone 单条记录回执（`cc:db:records:get`）。
+type RecordGetDone struct {
+	Record *storage.GameRecord
+	Err    error
+}
+
+// RecordSaveDone "保存为棋谱"回执（`cc:db:records:save`）。
+type RecordSaveDone struct {
+	Err error
+}
+
+// RecordDeleteDone 删除棋谱回执（`cc:db:records:delete`）。
+type RecordDeleteDone struct {
+	Err error
+}
