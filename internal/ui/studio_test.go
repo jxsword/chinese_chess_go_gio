@@ -454,7 +454,7 @@ func TestStudioSolveAssistFlow(t *testing.T) {
 			Proposal:  llm.SolveProposal{FirstMoveCode: "a4-d4", Idea: "平车闷杀"},
 		}, nil)
 	}
-	page.useLlm.Value = true
+	page.useLlmOn = true
 	page.startSolve()
 	q.pump(page) // 提议回执（assistRunner 同步 emit）回投页面
 
@@ -512,7 +512,7 @@ func TestStudioSolveAssistFailureNotes(t *testing.T) {
 		page.assistRunner = func(requestID string, _ *rules.Board, _ llm.LlmEndpointConfig, _ string) {
 			page.env.Emit("", AssistProposalDone{RequestID: requestID, Message: "回复不在清单中"}, nil)
 		}
-		page.useLlm.Value = true
+		page.useLlmOn = true
 		page.startSolve()
 		q.pump(page) // 提议回执回投
 		if len(fake.requests) != 1 || fake.requests[0].Type != solver.ReqSolve {
@@ -540,7 +540,7 @@ func TestStudioSolveAssistFailureNotes(t *testing.T) {
 			page.env.Emit("", AssistProposalDone{RequestID: requestID,
 				Proposal: llm.SolveProposal{FirstMoveCode: "h0-g2", Idea: "马跳"}}, nil)
 		}
-		page.useLlm.Value = true
+		page.useLlmOn = true
 		page.startSolve()
 		q.pump(page) // 提议回执回投
 		verify := fake.requests[0]

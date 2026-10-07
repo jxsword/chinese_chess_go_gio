@@ -120,7 +120,7 @@ type StudioPage struct {
 	depthChips   [3]widget.Clickable
 	timeIdx      int
 	depthIdx     int
-	useLlm       widget.Bool
+	useLlmChip   widget.Clickable // "大模型辅助"开关（chips 呈现——与限时/深度一致）
 	saveBtn      widget.Clickable
 	solveBtn     widget.Clickable
 	solving      bool
@@ -144,6 +144,7 @@ type StudioPage struct {
 	close2Btn widget.Clickable
 	battleBtn widget.Clickable
 	sheetList layout.List
+	tabList   layout.List // Tab 内容区纵向滚动（页级字段——每帧新建清零滚动状态）
 
 	launcher BattleLauncher
 
@@ -219,6 +220,7 @@ func NewStudioPage(env LlmEnv, hooks StudioHooks) *StudioPage {
 		redTurn:    true,
 		problemsAt: -1,
 		sheetList:  layout.List{Axis: layout.Vertical},
+		tabList:    layout.List{Axis: layout.Vertical},
 	}
 	p.solver = NewSolverClient(env.GameEnv, nil)
 	p.vision = NewVisionClient(env)
@@ -331,7 +333,6 @@ func (p *StudioPage) startSolve() {
 	p.solveRedTurn = p.redTurn
 	p.solveTimeMs = solveTimeOptions[p.timeIdx].ms
 	p.solvePlies = solveDepthOptions[p.depthIdx].plies
-	p.useLlmOn = p.useLlm.Value
 	p.solving = true
 	p.sheetOpen = false
 	p.sheet = nil
@@ -970,14 +971,18 @@ func (p *StudioPage) layoutTabs(gtx layout.Context) layout.Dimensions {
 }
 
 func (p *StudioPage) layoutTabBody(gtx layout.Context) layout.Dimensions {
-	switch p.tabIndex {
-	case 0:
-		return p.layoutSetupTab(gtx)
-	case 1:
-		return p.layoutSolveTab(gtx)
-	default:
-		return p.layoutVisionTab(gtx)
-	}
+	// Tab 内容区纵向滚动（窗口矮/缩放档位高时内容不被裁切——页级列表，
+	// 铁律 #G3 主 goroutine 独占）。
+	return p.tabList.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+		switch p.tabIndex {
+		case 0:
+			return p.layoutSetupTab(gtx)
+		case 1:
+			return p.layoutSolveTab(gtx)
+		default:
+			return p.layoutVisionTab(gtx)
+		}
+	})
 }
 
 func (p *StudioPage) layoutSetupTab(gtx layout.Context) layout.Dimensions {
@@ -1106,12 +1111,17 @@ func (p *StudioPage) layoutSolveTab(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-						layout.Rigid(material.CheckBox(PageTheme, &p.useLlm, "大模型辅助").Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return layout.Inset{Left: unit.Dp(10)}.Layout(gtx, studioLabel("模型提议首着，求解器验证后写入注释", 12))
+							return layoutOptionChips(gtx, 96,
+								chipOpt{click: &p.useLlmChip, label: "大模型辅助：开", selected: p.useLlmOn},
+								chipOpt{click: &p.useLlmChip, label: "大模型辅助：关", selected: !p.useLlmOn},
+							)
 						}),
 					)
 				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, studioLabel("开启后：模型提议首着，求解器验证通过才写入注释（需先配置研究助手模型；未配置时借用对战配置）", 12))
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, studioLabel(
@@ -1277,6 +1287,9 @@ func (p *StudioPage) handleEvents(gtx layout.Context) {
 	if p.saveBtn.Clicked(gtx) {
 		p.saveUnsolvedRecord()
 	}
+	if p.useLlmChip.Clicked(gtx) {
+		p.useLlmOn = !p.useLlmOn // 开关即时生效（下一次求解）
+	}
 	if p.solveBtn.Clicked(gtx) {
 		p.startSolve()
 	}
@@ -1323,6 +1336,7 @@ func (p *StudioPage) consumeEdges(gtx layout.Context) {
 	}
 	p.saveBtn.Clicked(gtx)
 	p.solveBtn.Clicked(gtx)
+	p.useLlmChip.Clicked(gtx)
 	p.pickBtn.Clicked(gtx)
 	p.loadPathBtn.Clicked(gtx)
 	p.corrBtn.Clicked(gtx)
@@ -1386,7 +1400,11 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 		case p.battleBtn.Clicked(gtx):
 			p.launcher.Open(nil) // 进入对战联动（起点/执方由 launchBattle 提供）
 		}
-		p.layoutSheet(gtx)
+		// 关闭后本帧跳过绘制（sheet 已 nil——继续绘制= nil deref panic，
+		// unwinding 时 defer clip Pop 二次 panic 掩盖原错误，应用退出）。
+		if p.sheetOpen && p.sheet != nil {
+			p.layoutSheet(gtx)
+		}
 	}
 	if p.assistantOpen && p.assistantCard != nil {
 		if p.asstCancelBtn.Clicked(gtx) {
