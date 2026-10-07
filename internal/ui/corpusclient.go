@@ -96,20 +96,34 @@ func (c *corpusIO) ReadPgnGame(path string, entry storage.PgnIndexEntry) (string
 // 保留，重试续传）。
 type CorpusDownloader struct {
 	emit func(requestID string, payload any, err error)
+	// root 语料目录解析（上游绑定层 CorpusDownload 语义：targetDir 空 =
+	// corpusRoot("")，用户设置>legacy>默认——复制物不做该解析）。
+	root func() string
 }
 
-// NewCorpusDownloader 创建下载客户端。
+// NewCorpusDownloader 创建下载客户端（root = 当前生效语料目录解析器）。
 func NewCorpusDownloader(env CorpusEnv) *CorpusDownloader {
-	return &CorpusDownloader{emit: env.Emit}
+	return &CorpusDownloader{emit: env.Emit, root: env.Root}
+}
+
+// resolveTargetDir 下载目标目录解析（上游绑定层 CorpusDownload 语义：空 =
+// corpusRoot("")）。独立方法便于单测锚定（空串直传复制物会使其 staging 取
+// filepath.Dir("")="."、rename 空目标 ENOENT——验收实测缺陷）。
+func (d *CorpusDownloader) resolveTargetDir(targetDir string) string {
+	if targetDir == "" && d.root != nil {
+		return d.root()
+	}
+	return targetDir
 }
 
 // StartAsync 发起下载（阻塞 I/O 在独立 goroutine；goroutine 生存期=请求生存期）。
 // isCancelled 为页面注入的取消探针（atomic 标志）。
 func (d *CorpusDownloader) StartAsync(requestID, url, targetDir string, isCancelled func() bool) {
+	targetDir = d.resolveTargetDir(targetDir)
 	go func() {
 		_, err := storage.DownloadCorpus(storage.DownloadCorpusOptions{
-			URL:       url,
-			TargetDir: targetDir,
+			URL:         url,
+			TargetDir:   targetDir,
 			OnProgress: func(received, total int64) {
 				d.emit(requestID, CorpusDownloadProgress{RequestID: requestID, Received: received, Total: total}, nil)
 			},
