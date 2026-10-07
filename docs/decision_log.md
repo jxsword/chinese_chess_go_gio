@@ -97,3 +97,23 @@
 - 理由：用户指定语义即"保存路径参数"，无需对话框；C 零依赖零环境风险。
 - 影响：语料库缺失引导页新增导入区（路径输入/粘贴/使用该目录/恢复默认）；
   storage.Settings 写 corpus.userPath；校验目录存在性后立即重扫。
+
+## D-006 文件对话框方案定案（2026-10-07，T5'.4）
+
+- 背景：D-005 以页面内路径输入（C 方案）落了语料目录导入；用户验收反馈
+  "导入本地库的功能并未实现……用导入本地仓库的入口选择导入"——期望的是
+  真正的目录**选择**体验（对话框浏览选择），路径手输不符合预期。T5'.4
+  开放决策项就此定案。
+- 选项：
+  - A. ncruces/zenity Go 库——白名单外新依赖（DR 纪律），弃用。
+  - B. 系统命令对话框（Linux zenity/kdialog、Windows FolderBrowserDialog、
+    macOS osascript）——零 go.mod 依赖、复用 OS 原生 UI、本机 zenity 已装
+    （实测可用）；代价：三平台命令分支自维护。
+  - C. 页面内路径输入（D-005 已落）——保留为兜底（对话框不可用时的降级）。
+  - D. 维持现状无对话框——功能缺失，弃用。
+- 结论：B（用户裁决）；C 保留为兜底与无对话框环境降级。
+- 理由：用户期望"选择导入"的对话框体验；B 零依赖且本机 zenity 可用；
+  与 KG-004 powershell 管道先例同型（exec 外呼收口 ui/filedialog.go）。
+- 影响：ui/filedialog.go（PickDirectoryAsync/SaveFileAsync）+ 语料页
+  "选择其他棋谱目录"按钮（上游同款恢复）+ 记录库"导出 PGN 文件"操作；
+  事件登记 00 §4（dialog:pickdir / dialog:savefile，K4 先登记后实现）。
