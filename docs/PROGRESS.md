@@ -2,9 +2,10 @@
 
 ## 当前状态
 
-**M6' 工作室 + 求解器 + 识图对接——验收通过**（2026-10-07，tag v0.6.0-m6'；
-T6'.1~T6'.5 完成 + §6 两轮复审 + 3 轮验收反馈修复，用户确认"全部验证通过"）。
-下一里程碑 M7'（评估 + 打包发布，启动提示词=design_docs/11 §4.8，全新会话粘贴）。
+**M7' 评估 + 打包发布——任务完成，暂停等待用户验收**（2026-10-07）。
+T7'.1 cmd/eval 回归（复制物零改动 + mock 端点 4 profile e2e）、T7'.2 三平台打包资产 +
+release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7'.3 DoD 核对均完成；
+真实端点手测项与打 tag 触发 release.yml 交用户（见"请手测清单（M7'）"）。
 
 ## 里程碑总览
 
@@ -18,7 +19,58 @@ T6'.1~T6'.5 完成 + §6 两轮复审 + 3 轮验收反馈修复，用户确认"�
 | **M4' LLM 全链路对接** | ✅ 验收通过（tag v0.4.0-m4'） | T4'.1~T4'.3 完成 + 12 轮反馈修复/优化（4 个 Gio 层真缺陷：每帧新建列表/嵌套列表事件盗取/列表漏设 Vertical/保存按钮未消费点击；界面缩放设置、Key 掩码显示、预设下拉式展开、百炼预设）；真实端点（百炼）一整局实测通过 |
 | **M5' 语料 + 棋谱对接** | ✅ 验收通过（tag v0.5.0-m5'） | T5'.1~T5'.4 完成 + D-004 入口勘误落位（语料浏览→残局选关、棋谱库=记录库+保存为棋谱）+ D-005/D-006 对话框定案 + 3 轮反馈修复（下载 targetDir/启动器统一/剪贴板乱码/记录解码）；14 万局性能实测 FPS 76~87；导出快照与上游一致 |
 | M6' 工作室 + 求解器 + 识图 | ✅ 验收通过（tag v0.6.0-m6'） | T6'.1~T6'.5 完成；6 验证 FEN 金标准回归全绿；§6 两轮复审修复 3 处 + 验收反馈 3 轮修复（结果面板死按钮→同帧 nil 绘制崩溃 ×2 处→辅助开关不可见/Tab 滚动化、棋谱库操作入口下拉菜单化） |
-| M7' | ⬜ | 见 design_docs/10-实施路线图.md |
+| M7' 评估 + 打包发布 | 🔄 待验收 | T7'.1~T7'.3 完成；4 profile mock e2e 全跑通；build/ 资产 + release.yml（5 踩坑点吸收 + DR-G005 Windows 形态）；质量门全绿；Linux 打包链路本地演练通过；待用户推 tag 触发三平台 CI + 真实端点手测 |
+
+## M7' 完成清单（逐任务）
+
+| 任务 | 交付 | 验收结果 |
+|---|---|---|
+| T7'.1 cmd/eval 回归 | **复制物零改动核验**：cmd/eval/main.go+main_test.go 与上游 v1.0.0-rc1 diff 仅 module 路径（映照纪律允许项）；`go test ./cmd/eval/ -race` 全绿（报告 JSON 快照 + 字段齐全 + mock SSE 一局 + DR-005 思维链关闭参数断言）；**mock 端点 e2e**：本地 OpenAI 兼容 SSE mock（cmd/eval 测试内嵌 mock 的独立进程等价物，不进仓库）+ `--suite --max-plies 40` → 4 profile（baseline-v1/p0-prompt-v2/hybrid-candidate/hybrid-gate）× 红黑 2 局全跑通，stderr 逐手进度 320 行（上游-DR-011 行为不变），stdout JSON 报告 16 字段×8 局齐全、落盘成功 | 通过（无代码改动，复制物零 diff） |
+| T7'.2 三平台打包 + release.yml | `build/` 资产：nfpm.yaml（不写 depends 硬绑，上游同口径）+ desktop 文件 + 512 图标（上游同源复用）+ build-appimage.sh（linuxdeploy，上游脚本同构适配 go build）+ darwin/Info.plist（静态，.app 手工组装）+ appicon.png（1024，macOS icns 由 CI sips/iconutil 生成）+ README（含 Windows 裸 exe 使用说明）；`.github/workflows/release.yml`：tag v* 触发 → 三平台矩阵 lint+test+build → 冒烟 → artifact → 汇总 Draft Release | 本地演练：go build -ldflags 版本注入 ✓（27.9MB）、deb 内容核验 ✓（15MB）、AppImage ✓（15.2MB，上游 80MB）、tar.gz ✓；**5 踩坑点逐条吸收见下表** |
+| T7'.3 DoD 核对 + Release 演练 | 见下方 DoD 表；Release 流程演练=Linux 全链路本地实跑（deb/AppImage/tar.gz 产物在 build/bin/ 供用户试装），完整演练待用户推 rehearsal tag | 见 DoD 表 |
+
+### T7'.2 上游 5 轮踩坑点吸收对照（10 §4 清单）
+
+| # | 踩坑点 | release.yml 吸收方式 |
+|---|---|---|
+| ① | Windows NSIS 前置 choco install + 显式写 GITHUB_PATH | 基线为裸 exe 不走 NSIS（DR-G005）；若用户裁决升级 B，要点已注释内嵌 Windows 段 |
+| ② | macOS .app/dmg 路径 glob 不写死 | .app 由本 workflow 组装于已知路径；bundle 内可执行文件名经 PlistBuddy 读 CFBundleExecutable 取得，不硬编码 |
+| ③ | release job 必须先 checkout | `release` job 首步 actions/checkout@v4（防 untagged-<hash> 幽灵 draft） |
+| ④ | draft 创建后自校验资产名单 | 升级为**强断言**：isDraft=true 且 5 项资产名单与预期逐一致，否则 fail |
+| ⑤ | go test 全平台 -race 无例外 | 三平台矩阵均 `go test ./... -race`（GOMAXPROCS=2，KG-007 同 ci.yml 口径） |
+
+另：工具不进 go.mod（nfpm 走 `go install @v2.41.1` + 版本 key 缓存；linuxdeploy 脚本下载到 tmp/）；三平台冒烟判据=进程存活满 10s（Linux xvfb+lavapipe 软渲染 timeout 124 / Windows Start-Process+HasExited / macOS 裸二进制与 .app 内两段）。
+
+### M7' DoD 四条核对（10 §5）
+
+| # | DoD | 状态 |
+|---|---|---|
+| 1 | E-F01~F42 全部功能可用（两处既定差异：重复裁决前置、思维链强制关闭） | ✅ M1'~M6' 逐里程碑手测清单已执行并验收通过（含两处既定差异实现） |
+| 2 | 质量门全绿 + 三平台安装产物 | ✅ 本地 gofmt 空/vet 0/`go test ./... -race` 全绿；⏳ 三平台产物待用户推 tag 触发 release.yml（清单 #1） |
+| 3 | 真实 LLM 端点手测（人机 LLM 一整局 + LLM vs LLM 一整局 + 求解辅助 + 识图，思维链关闭生效） | ⏳ 用户执行（清单 #4） |
+| 4 | MatchRunner 四 profile 报告可复现 | ✅ mock 端点协议面已证（16 字段×8 局）；⏳ 真实端点同数量级对比待用户（清单 #5） |
+
+## 请手测清单（M7'，用户执行）
+
+> 质量门与 T7'.1/T7'.2 自动验证项已全绿（见上表），以下为验收门剩余项。
+> Linux 演练产物已在 `build/bin/`：`chinese-chess-ultra-gio_1.0.0_amd64.deb`、
+> `chinese-chess-ultra-gio-1.0.0-linux-amd64.AppImage`、`chinese-chess-ultra-gio-1.0.0-linux-amd64.tar.gz`。
+
+1. **Release 流程演练（DoD #2 收口）**：推送 rehearsal tag 触发 release.yml——
+   `git tag v1.0.0-rc1 && git push origin v1.0.0-rc1` → 观察 Actions：
+   三平台矩阵 lint+test+build 全绿 → 三平台冒烟（存活 10s 判据）通过 → Draft Release
+   出现且资产 5 项自校验通过（deb/AppImage/tar.gz/exe/dmg）→ 下载 dmg/exe（有条件则启动验证）。
+   演练通过后删除 rehearsal draft 与 tag，正式验收通过再打 `v1.0.0`。
+2. **Linux 产物试装（可选本机）**：AppImage 直接运行（`./build/bin/chinese-chess-ultra-gio-1.0.0-linux-amd64.AppImage`
+   需 FUSE 或 `--appimage-extract-and-run`）；或 `sudo dpkg -i build/bin/chinese-chess-ultra-gio_1.0.0_amd64.deb`
+   后从应用菜单启动，验证桌面入口/图标。
+3. **真实端点手测（DoD #3）**：应用内配置真实端点（百炼）——人机 LLM 一整局 +
+   LLM vs LLM 一整局 + 工作室求解辅助一次 + 识图一次；全程确认无思维链内容出现。
+4. **真实端点 eval suite（DoD #4 收口）**：
+   `LLM_BASE_URL=... LLM_MODEL=... LLM_API_KEY=... go run ./cmd/eval -- --suite`
+   → 报告四档分键齐全，与上游 v1.0 报告同数量级（胜负/兜底率/失误率）。
+5. **Windows 打包形态裁决（DR-G005）**：A 维持裸 exe（当前落地）或 B 升级 NSIS
+   （决策矩阵见 design_docs/decision_log.md DR-G005）；裁决后我同步 10 §4 + 决策记录。
 
 ## M6' 完成清单（逐任务 commit）
 
