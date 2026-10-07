@@ -218,12 +218,14 @@ func (r *ReplayView) haltPlay() {
 	}
 }
 
-// startTicker 启动自动播放计时（goroutine 只触碰自有通道与 emit，铁律 #G3）；
-// 每拍前读播放器当前间隔（速度/自定义间隔切换下一拍生效——注册备查注记）；
+// startTicker 启动自动播放计时（goroutine 只触碰自有通道与捕获值，铁律 #G3）；
+// 间隔在启动时捕获（速度/自定义间隔变更由 demoControls 变更点重建 ticker——
+// 下一拍按新间隔生效；跨 goroutine 直读 player 字段=数据竞争，禁止）；
 // 迟到 tick 由 OnTick 按 Gen 代次丢弃（#G5）。
 func (r *ReplayView) startTicker() {
 	r.gen++
 	gen := r.gen
+	interval := r.player.CurrentInterval() // 捕获值：goroutine 不读 player
 	stop := make(chan struct{})
 	r.stop = stop
 	if r.emit == nil {
@@ -234,11 +236,24 @@ func (r *ReplayView) startTicker() {
 			select {
 			case <-stop:
 				return
-			case <-time.After(time.Duration(r.player.CurrentInterval()) * time.Millisecond):
+			case <-time.After(time.Duration(interval) * time.Millisecond):
 			}
 			r.emit("", ReplayTick{Gen: gen}, nil)
 		}
 	}()
+}
+
+// restartTickerIfPlaying 速度/间隔变更点调用：播放中重建 ticker（新间隔
+// 下一拍生效）；暂停/idle 态无 ticker，无需处理。
+func (r *ReplayView) restartTickerIfPlaying() {
+	if !r.Playing() {
+		return
+	}
+	if r.stop != nil {
+		close(r.stop)
+		r.stop = nil
+	}
+	r.startTicker()
 }
 
 // OnTick 自动播放步进回执（主 goroutine；Gen 过期忽略，#G5）：
@@ -313,7 +328,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 	}
 	for i := range r.speedClicks {
 		if r.speedClicks[i].Clicked(gtx) {
-			// 速度档位 0.5x/1x/2x：播放中即时生效（下一拍按新间隔）
+			// 速度档位 0.5x/1x/2x：播放中即时生效（重建 ticker，下一拍新间隔）
 			switch i {
 			case 0:
 				r.player.SetSpeedMultiplier(state.DemoSlow)
@@ -322,6 +337,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 			default:
 				r.player.SetSpeedMultiplier(state.DemoNormal)
 			}
+			r.restartTickerIfPlaying()
 		}
 	}
 	if r.intervalFloat.Update(gtx) {
@@ -336,6 +352,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 		}
 		r.player.SetCustomInterval(ms)
 		r.intervalFloat.Value = float32(float64(ms-demoIntervalMin) / float64(demoIntervalMax-demoIntervalMin))
+		r.restartTickerIfPlaying()
 	}
 	if r.loopCheck.Update(gtx) {
 		r.player.SetDemoLoop(r.loopCheck.Value)

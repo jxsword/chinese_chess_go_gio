@@ -129,6 +129,9 @@ type StudioPage struct {
 	solveRequest string
 	solveFen     string
 	solveStart   time.Time
+	solveRedTurn bool // 发起时轮走方快照（求解中可改摆盘，结果面板按快照呈现）
+	solveTimeMs  int  // 发起时参数快照（限时/深度/裁判口径一致）
+	solvePlies   int
 	useLlmOn     bool
 	saveID       string      // 入库在途标记（RecordSaveDone 新鲜度；空=无在途）
 	saveKind     string      // "unsolved" | "solve"
@@ -325,6 +328,9 @@ func (p *StudioPage) startSolve() {
 		return
 	}
 	p.solveFen = p.currentFen()
+	p.solveRedTurn = p.redTurn
+	p.solveTimeMs = solveTimeOptions[p.timeIdx].ms
+	p.solvePlies = solveDepthOptions[p.depthIdx].plies
 	p.useLlmOn = p.useLlm.Value
 	p.solving = true
 	p.sheetOpen = false
@@ -388,6 +394,12 @@ func (p *StudioPage) runSolveAssist() {
 		cancel()
 		return
 	}
+	emit := p.env.Emit
+	if emit == nil {
+		cancel()
+		p.submitSolve() // 防御：无事件面（降级环境）直接求解
+		return
+	}
 	go func() {
 		defer cancel()
 		result, err := llm.ProposeSolveFirstMove(ctx, board, cfg, transport, llm.SolveAssistOptions{AuthSlot: authSlot})
@@ -395,7 +407,7 @@ func (p *StudioPage) runSolveAssist() {
 		if err != nil {
 			done.Err = err
 		}
-		p.env.Emit("", done, nil)
+		emit("", done, nil)
 	}()
 }
 
@@ -447,7 +459,7 @@ func (p *StudioPage) onAssistProposalDone(ev AssistProposalDone) {
 		p.assistIdea = ev.Proposal.Idea
 		p.verifyRequest = p.newID("verify")
 		p.solver.IsWinningFirstMoveAsync(p.verifyRequest, p.solveFen, rules.Move{From: *from, To: *to},
-			solveDepthOptions[p.depthIdx].plies, solveTimeOptions[p.timeIdx].ms)
+			p.solvePlies, p.solveTimeMs)
 	}
 }
 
@@ -488,7 +500,7 @@ func (p *StudioPage) onSolveWinDone(ev SolveWinDone) {
 
 func (p *StudioPage) submitSolve() {
 	p.solveRequest = p.newID("solve")
-	p.solver.SolveAsync(p.solveRequest, p.solveFen, solveTimeOptions[p.timeIdx].ms, solveDepthOptions[p.depthIdx].plies)
+	p.solver.SolveAsync(p.solveRequest, p.solveFen, p.solveTimeMs, p.solvePlies)
 }
 
 // startSolveTicker 求解进度 200ms 节拍（goroutine 只 emit，铁律 #G3；
@@ -539,7 +551,7 @@ func (p *StudioPage) onSolveDone(ev SolveDone) {
 		fen:     p.solveFen,
 		result:  *ev.Result,
 		llmNote: p.llmNote,
-		redTurn: p.redTurn,
+		redTurn: p.solveRedTurn,
 	}
 	p.persistSolveRecord()
 }
@@ -824,7 +836,9 @@ func (p *StudioPage) modalOpen() bool { return p.sheetOpen || p.launcher.Opened(
 func (p *StudioPage) OnAppEvent(payload any) {
 	switch ev := payload.(type) {
 	case SolveTick:
-		_ = ev // 节拍仅排帧刷新已用时文本（Emit 已排帧；Gen 过期无副作用）
+		if ev.Gen != p.solveGen {
+			return // 迟到节拍丢弃（#G5；Emit 已排帧，无额外动作）
+		}
 	case SolveDone:
 		p.onSolveDone(ev)
 	case RecordSaveDone:
