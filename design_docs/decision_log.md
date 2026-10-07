@@ -93,6 +93,7 @@
   B 作为候选项保留全部吸收要点（choco install nsis --no-progress + Add-Content
   GITHUB_PATH，注释已内嵌 release.yml Windows 段），**是否升级 B 由用户验收时裁决**——
   裁决升级时仅增 Windows 打包步与资产名单两项，其余矩阵不动。
+  **【2026-10-07 定案】M7' 验收通过，用户确认维持 A，B/C 不启用。**
 - 理由：Gio 单二进制使安装器的传统价值（解决运行时依赖）消失；A 的缺点均为观感级且
   有使用说明兜底；B 的成本是永久性 CI 复杂度。C 在无真实依赖差异的前提下纯属冗余。
 - 影响：release.yml（Windows 段）、build/README.md（使用说明）、Draft Release 资产名单

@@ -2,11 +2,10 @@
 
 ## 当前状态
 
-**M7' 评估 + 打包发布——任务完成，暂停等待用户验收**（2026-10-07）。
-T7'.1 cmd/eval 回归（复制物零改动 + mock 端点 4 profile e2e）、T7'.2 三平台打包资产 +
-release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7'.3 DoD 核对均完成；
-真实端点 eval suite（DoD #4）已通过与上游逐档对比收口；剩余：Release 演练（Windows CI
-修复后重打 tag）、真实端点四项手测（DoD #3）、Windows 形态裁决（见"请手测清单（M7'）"）。
+**M7' 评估 + 打包发布——验收通过**（2026-10-07）。T7'.1~T7'.3 全部完成；真实端点四项
+手测（DoD #3）、eval suite 逐档对比（DoD #4）、Release 演练（v1.0.0-rc1 全绿 + draft
+5 资产自校验通过）均由用户确认通过；Windows 形态维持基线 A（裸 exe，NSIS 候选未启用，
+DR-G005 定案）。收官 tag：`v1.0.0`（发布流程见下"正式发布步骤"）。
 
 ## 里程碑总览
 
@@ -20,7 +19,7 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
 | **M4' LLM 全链路对接** | ✅ 验收通过（tag v0.4.0-m4'） | T4'.1~T4'.3 完成 + 12 轮反馈修复/优化（4 个 Gio 层真缺陷：每帧新建列表/嵌套列表事件盗取/列表漏设 Vertical/保存按钮未消费点击；界面缩放设置、Key 掩码显示、预设下拉式展开、百炼预设）；真实端点（百炼）一整局实测通过 |
 | **M5' 语料 + 棋谱对接** | ✅ 验收通过（tag v0.5.0-m5'） | T5'.1~T5'.4 完成 + D-004 入口勘误落位（语料浏览→残局选关、棋谱库=记录库+保存为棋谱）+ D-005/D-006 对话框定案 + 3 轮反馈修复（下载 targetDir/启动器统一/剪贴板乱码/记录解码）；14 万局性能实测 FPS 76~87；导出快照与上游一致 |
 | M6' 工作室 + 求解器 + 识图 | ✅ 验收通过（tag v0.6.0-m6'） | T6'.1~T6'.5 完成；6 验证 FEN 金标准回归全绿；§6 两轮复审修复 3 处 + 验收反馈 3 轮修复（结果面板死按钮→同帧 nil 绘制崩溃 ×2 处→辅助开关不可见/Tab 滚动化、棋谱库操作入口下拉菜单化） |
-| M7' 评估 + 打包发布 | 🔄 待验收 | T7'.1~T7'.3 完成；4 profile mock e2e 全跑通；build/ 资产 + release.yml（5 踩坑点吸收 + DR-G005 Windows 形态）；质量门全绿；Linux 打包链路本地演练通过；待用户推 tag 触发三平台 CI + 真实端点手测 |
+| M7' 评估 + 打包发布 | ✅ 验收通过（tag v1.0.0） | T7'.1~T7'.3 完成 + Release 演练 4 轮修复全绿（filedialog_windows import/GOARCH/CGO_ENABLED/运行时库/Verify 比较序）+ 真实端点四项手测 + eval suite 逐档对比；draft 5 资产自校验通过；Windows 维持裸 exe 基线（DR-G005） |
 
 ## M7' 完成清单（逐任务）
 
@@ -108,8 +107,24 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
 3. **真实端点手测（DoD #3）**：应用内配置真实端点（百炼）——人机 LLM 一整局 +
    LLM vs LLM 一整局 + 工作室求解辅助一次 + 识图一次；全程确认无思维链内容出现。
 4. ~~**真实端点 eval suite（DoD #4 收口）**~~ ✅ 2026-10-07 已执行通过与上游逐档对比（见上表），报告 tmp/eval-report-1791378315130.json。
-5. **Windows 打包形态裁决（DR-G005）**：A 维持裸 exe（当前落地）或 B 升级 NSIS
-   （决策矩阵见 design_docs/decision_log.md DR-G005）；裁决后我同步 10 §4 + 决策记录。
+5. ~~**Windows 打包形态裁决（DR-G005）**~~ ✅ 用户验收通过，基线 A（裸 exe）维持，NSIS 候选不启用（决策记录已定案）。
+
+## M7' 验收结论（2026-10-07，用户确认"所有通过"）
+
+- Release 演练：rehearsal tag `v1.0.0-rc1` 全链路 4 轮修复后全绿——三平台矩阵
+  （lint + test -race + build + 存活冒烟）→ artifact → 汇总上传 Draft Release →
+  资产 5 项自校验通过；commit `afa194d`。
+- 真实端点手测（DoD #3）四项通过；eval suite（DoD #4）逐档对比通过（见上表）。
+- Windows 打包形态定案：基线 A 裸 exe（DR-G005）；10 §4 DoD 四条全部收口。
+- 收官：正式 tag `v1.0.0`（M0'~M7' 全部里程碑完成，Gio 版 v1.0.0 发布）。
+
+## 正式发布步骤（v1.0.0）
+
+1. 清理演练产物：Releases 页删除 `v1.0.0-rc1` draft；
+   `git push origin :refs/tags/v1.0.0-rc1 && git tag -d v1.0.0-rc1`；
+2. `git push origin main`（本验收结论 commit 随推）；
+3. `git tag v1.0.0 && git push origin v1.0.0` → 触发 release.yml；
+4. 全绿后 Releases 页核验 draft（commit=main HEAD、5 资产版本号 1.0.0）→ **Publish release**。
 
 ## M6' 完成清单（逐任务 commit）
 
