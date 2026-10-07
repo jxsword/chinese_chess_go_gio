@@ -72,6 +72,11 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
   不可见；ubuntu/macOS 两腿全绿佐证诊断。修复=删多余 import（commit 5753548）；
   **流程补强**：本地补跑 `GOOS=windows go vet ./... && GOOS=windows go build .` 全量复验
   通过（仅有的两个 build-tag 文件均已覆盖）。后续平台专属文件改动一律加 GOOS 交叉 vet。
+- **重打 tag 后 macOS 腿失败（run 37627086853）**：universal 构建的 amd64 腿漏设
+  `GOARCH=amd64`——macos-latest 跑者已是 arm64 裸机，裸 `go build` 产出宿主架构，
+  lipo 报 "same architectures (arm64)"。修复=显式 GOARCH=amd64 + `lipo -info` 自证
+  （commit f283a20）；两腿构建本身均成功（cgo 的 -arch 由 Go 自动传 clang），
+  universal 后续链路（.app/dmg/冒烟）不变。
 
 ## 请手测清单（M7'，用户执行）
 
