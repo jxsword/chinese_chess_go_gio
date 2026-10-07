@@ -77,8 +77,7 @@ type RecordLibraryPage struct {
 	notations     []string
 
 	// 弹层/动作
-	launchOpen    bool
-	launchSide    bool // 人机 AI：执方选择步
+	launcher      BattleLauncher
 	launchTarget  *state.GameRecordData
 	deletingTitle string
 	deletingID    int64
@@ -109,10 +108,6 @@ type RecordLibraryPage struct {
 	plyClicks      map[int]*widget.Clickable
 	deleteConfirmB widget.Clickable
 	deleteCancelB  widget.Clickable
-	modeClicks     [4]widget.Clickable
-	sideRedBtn     widget.Clickable
-	sideBlackBtn   widget.Clickable
-	launchCancelB  widget.Clickable
 }
 
 // NewRecordLibraryPage 创建记录库页（构造即拉列表）。
@@ -313,8 +308,7 @@ func (p *RecordLibraryPage) handleEvents(gtx layout.Context) {
 			p.detailID = 0
 		case p.battleBtn.Clicked(gtx):
 			p.launchTarget = p.detail
-			p.launchOpen = true
-			p.launchSide = false
+			p.launcher.Open(p.detail)
 		case p.exportBtn.Clicked(gtx):
 			p.pendingExport = state.WritePgn(*p.detail, time.Now())
 		case p.shareBtn.Clicked(gtx):
@@ -374,44 +368,13 @@ func (p *RecordLibraryPage) handleEvents(gtx layout.Context) {
 			p.deletingID = 0
 		}
 	}
-	// 启动器（模式 → 人机 AI 附执方）
-	if p.launchOpen {
-		for i := range p.modeClicks {
-			if p.modeClicks[i].Clicked(gtx) {
-				opt := BattleModeOptions[i]
-				if opt.ID == BattleHumanVsAi && !p.launchSide {
-					p.launchSide = true
-					return
-				}
-				p.launch(opt.ID, "")
-			}
-		}
-		if p.launchSide {
-			switch {
-			case p.sideRedBtn.Clicked(gtx):
-				p.launch(BattleHumanVsAi, "red")
-			case p.sideBlackBtn.Clicked(gtx):
-				p.launch(BattleHumanVsAi, "black")
-			}
-		}
-		if p.launchCancelB.Clicked(gtx) {
-			if p.launchSide {
-				p.launchSide = false
-			} else {
-				p.launchOpen = false
-			}
-		}
-	}
 }
 
-// launch 关闭弹层并进入对战。
-func (p *RecordLibraryPage) launch(mode BattleMode, playerSide string) {
-	p.launchOpen = false
-	p.launchSide = false
-	target := p.launchTarget
-	p.launchTarget = nil
-	if p.hooks.OnBattle != nil && target != nil {
-		p.hooks.OnBattle(mode, p.battleFen(target), playerSide)
+// launchBattle 进入对战回调（BattleLauncher onLaunch；target=启动时上下文）。
+func (p *RecordLibraryPage) launchBattle(mode BattleMode, playerSide string, target any) {
+	d, _ := target.(*state.GameRecordData)
+	if p.hooks.OnBattle != nil && d != nil {
+		p.hooks.OnBattle(mode, p.battleFen(d), playerSide)
 	}
 }
 
@@ -430,8 +393,7 @@ func (p *RecordLibraryPage) runAction(a int, summary storage.GameRecordSummary) 
 					return
 				}
 				p.launchTarget = d
-				p.launchOpen = true
-				p.launchSide = false
+				p.launcher.Open(d)
 			case actExport:
 				p.pendingExport = state.WritePgn(*d, time.Now())
 			case actShare:
@@ -471,7 +433,10 @@ func (p *RecordLibraryPage) Layout(gtx layout.Context) layout.Dimensions {
 				layout.Flexed(1, p.layoutBody),
 			)
 		}),
-		layout.Stacked(p.layoutLauncher),      // 进入对战启动器
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions { // 进入对战启动器（共用组件）
+			p.launcher.Layout(gtx, p.launchBattle)
+			return layout.Dimensions{}
+		}),
 		layout.Stacked(p.layoutDeleteConfirm), // 删除确认
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions { // toast（非模态浮层）
 			if p.toastText != "" {
@@ -810,103 +775,6 @@ func (p *RecordLibraryPage) infoLine(text string, c color.NRGBA) func(gtx layout
 		l.TextSize = unit.Sp(13)
 		return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, l.Layout)
 	}
-}
-
-// layoutLauncher 进入对战启动器弹层（RecordLauncherDialog：模式 → 人机 AI 执方
-// 选择；KG-009 口径——宏量测 + op.Offset 手动居中）。
-func (p *RecordLibraryPage) layoutLauncher(gtx layout.Context) layout.Dimensions {
-	if !p.launchOpen {
-		return layout.Dimensions{}
-	}
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, rgba(0x000000, 0.4))
-	W, H := gtx.Constraints.Max.X, gtx.Constraints.Max.Y
-	panelW := gtx.Dp(unit.Dp(380))
-	if W < panelW {
-		panelW = W
-	}
-	macro := op.Record(gtx.Ops)
-	mctx := gtx
-	mctx.Constraints = layout.Constraints{Max: image.Point{X: panelW, Y: H}}
-	dims := layout.UniformInset(unit.Dp(16)).Layout(mctx, p.launcherPanel)
-	call := macro.Stop()
-	panelH := dims.Size.Y
-	if panelH > H {
-		panelH = H
-	}
-	tr := op.Offset(image.Pt((W-panelW)/2, (H-panelH)/2)).Push(gtx.Ops)
-	defer tr.Pop()
-	defer clip.UniformRRect(image.Rectangle{Max: image.Point{X: panelW, Y: panelH}}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, ThemeSurface)
-	call.Add(gtx.Ops)
-	return layout.Dimensions{Size: gtx.Constraints.Max}
-}
-
-// launcherPanel 启动器内容（模式清单 / 执方选择步 / 取消-返回）。
-func (p *RecordLibraryPage) launcherPanel(gtx layout.Context) layout.Dimensions {
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			title := "选择对战模式"
-			if p.launchSide {
-				title = "人机对战（内置 AI） · 选择执方（AI 执另一方）"
-			}
-			l := material.Body1(PageTheme, title)
-			l.Color = ThemeOnSurface
-			return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, l.Layout)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if p.launchSide {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(p.simpleButton(&p.sideRedBtn, "玩家执红", false)),
-					layout.Rigid(p.simpleButton(&p.sideBlackBtn, "玩家执黑", false)),
-				)
-			}
-			children := make([]layout.FlexChild, 0, len(BattleModeOptions))
-			for i, opt := range BattleModeOptions {
-				i, opt := i, opt
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return p.modeClicks[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(8))).Push(gtx.Ops).Pop()
-							paint.Fill(gtx.Ops, ThemeSurfaceDim)
-							return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										l := material.Body2(PageTheme, opt.Label)
-										l.Color = ThemeOnSurface
-										return l.Layout(gtx)
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										l := material.Body2(PageTheme, opt.Subtitle)
-										l.TextSize = unit.Sp(12)
-										l.Color = ThemeSeedDark
-										return l.Layout(gtx)
-									}),
-								)
-							})
-						})
-					})
-				}))
-			}
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(PageTheme, &p.launchCancelB, p.launchCancelLabel())
-				btn.Background = ThemeSurfaceDim
-				btn.Color = ThemeSeedDark
-				return btn.Layout(gtx)
-			})
-		}),
-	)
-}
-
-// launchCancelLabel 启动器取消按钮文案（执方选择步=返回，首屏=取消——上游同款）。
-func (p *RecordLibraryPage) launchCancelLabel() string {
-	if p.launchSide {
-		return "返回"
-	}
-	return "取消"
 }
 
 // layoutDeleteConfirm 删除确认弹层（ConfirmDialog：确定删除「title」？不可恢复；

@@ -118,9 +118,9 @@ func NewCorpusPage(env CorpusEnv, hooks CorpusHooks) *CorpusPage {
 	p.searchEditor.SingleLine = true
 	p.pgnSearchEditor.SingleLine = true
 	p.replay = NewReplayView(env.Emit)
-	p.replay.OnBattle = func(mode BattleMode, fen string) {
+	p.replay.OnBattle = func(mode BattleMode, fen, side string) {
 		if hooks.OnBattle != nil {
-			hooks.OnBattle(mode, fen, "")
+			hooks.OnBattle(mode, fen, side)
 		}
 	}
 	if os.Getenv("CC_GIO_SYNTH_SCROLL") == "1" {
@@ -263,9 +263,10 @@ func (p *CorpusPage) Layout(gtx layout.Context) layout.Dimensions {
 				}),
 			)
 		}),
-		// 顶层弹层：进入对战模式选择（Stack 顶层 + 半透明遮罩，08 §1）
+		// 顶层弹层：进入对战模式选择（共用 BattleLauncher，KG-009 居中）
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return p.replay.layoutBattleDialog(gtx)
+			p.replay.battleDialog(gtx)
+			return layout.Dimensions{}
 		}),
 	)
 	if p.perf != nil {

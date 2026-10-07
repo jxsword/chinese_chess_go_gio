@@ -19,8 +19,6 @@ import (
 
 	"gioui.org/io/clipboard"
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -35,8 +33,8 @@ const ReplayAutoPlayInterval = 800 * time.Millisecond
 
 // ReplayView 重放器 state struct（主 goroutine 独占，铁律 #G3）。
 type ReplayView struct {
-	// OnBattle 进入对战回调（模式 + 起点 FEN；nil = 不启用入口）。
-	OnBattle func(mode BattleMode, fen string)
+	// OnBattle 进入对战回调（模式 + 起点 FEN + 玩家执方；nil = 不启用入口）。
+	OnBattle func(mode BattleMode, fen, side string)
 	// emit 事件提交面（页面注入 env.Emit；ReplayTick 回主循环 OnTick）。
 	emit func(requestID string, payload any, err error)
 
@@ -51,19 +49,18 @@ type ReplayView struct {
 	stop      chan struct{}
 
 	// 控件
-	playBtn          widget.Clickable
-	stopBtn          widget.Clickable
-	toStartBtn       widget.Clickable
-	prevBtn          widget.Clickable
-	nextBtn          widget.Clickable
-	endBtn           widget.Clickable
-	battleBtn        widget.Clickable
-	exportBtn        widget.Clickable
-	battleModeClicks [4]widget.Clickable
-	moveList         layout.List
-	rowClicks        map[int]*widget.Clickable
+	playBtn    widget.Clickable
+	stopBtn    widget.Clickable
+	toStartBtn widget.Clickable
+	prevBtn    widget.Clickable
+	nextBtn    widget.Clickable
+	endBtn     widget.Clickable
+	battleBtn  widget.Clickable
+	exportBtn  widget.Clickable
+	launcher   BattleLauncher
+	moveList   layout.List
+	rowClicks  map[int]*widget.Clickable
 
-	battleOpen bool
 	exportText string // 非空 = 下一帧写剪贴板
 	message    string // 状态行（已复制/错误）
 }
@@ -89,7 +86,7 @@ func (r *ReplayView) SetPuzzle(v *state.ParsedPuzzleView) {
 	r.pos = 0
 	r.completed = false
 	r.message = ""
-	r.battleOpen = false
+	r.launcher.Close()
 	r.rowClicks = map[int]*widget.Clickable{}
 	if v == nil {
 		return
@@ -266,15 +263,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 		r.message = ""
 	case r.battleBtn.Clicked(gtx):
 		if r.OnBattle != nil {
-			r.battleOpen = true
-		}
-	}
-	for i := range r.battleModeClicks {
-		if r.battleOpen && r.battleModeClicks[i].Clicked(gtx) {
-			r.battleOpen = false
-			if r.OnBattle != nil {
-				r.OnBattle(BattleModeOptions[i].ID, r.BattleFen())
-			}
+			r.launcher.Open(nil)
 		}
 	}
 	// 走法列表行点击（前/后半着分别跳到该着之后）
@@ -296,7 +285,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 func blackRowKey(i int) int { return -(i + 1) }
 
 // Layout 重放器视图（PuzzleDetailView 布局：标题行 + 棋盘 + 控制条 + 走法列表；
-// 进入对战模式弹层由 layoutBattleDialog 顶层承载，调用方 Stack 叠放）。
+// 进入对战模式弹层由 battleDialog 顶层承载（共用 BattleLauncher），调用方 Stack 叠放）。
 func (r *ReplayView) Layout(gtx layout.Context) layout.Dimensions {
 	r.handleEvents(gtx)
 	if r.exportText != "" {
@@ -474,54 +463,12 @@ func (r *ReplayView) plyCell(gtx layout.Context, key, idx int, base color.NRGBA)
 	return clicker.Layout(gtx, l.Layout)
 }
 
-// layoutBattleDialog 进入对战模式选择弹层（RecordLauncherDialog 等价；
-// 调用方在 Stack 顶层调用）。
-func (r *ReplayView) layoutBattleDialog(gtx layout.Context) layout.Dimensions {
-	if !r.battleOpen {
-		return layout.Dimensions{}
-	}
-	// 半透明遮罩（拦截底层输入）
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, rgba(0x000000, 0.4))
-	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Max.X = gtx.Dp(unit.Dp(360))
-		defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(12))).Push(gtx.Ops).Pop()
-		paint.Fill(gtx.Ops, ThemeSurface)
-		return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			children := []layout.FlexChild{
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					l := material.Body1(PageTheme, "选择对战模式")
-					l.Color = ThemeOnSurface
-					return layout.Inset{Bottom: unit.Dp(10)}.Layout(gtx, l.Layout)
-				}),
-			}
-			for i, opt := range BattleModeOptions {
-				i, opt := i, opt
-				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Inset{Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return r.battleModeClicks[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							defer clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(unit.Dp(8))).Push(gtx.Ops).Pop()
-							paint.Fill(gtx.Ops, ThemeSurfaceDim)
-							return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										l := material.Body2(PageTheme, opt.Label)
-										l.Color = ThemeOnSurface
-										return l.Layout(gtx)
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										l := material.Body2(PageTheme, opt.Subtitle)
-										l.TextSize = unit.Sp(12)
-										l.Color = ThemeSeedDark
-										return l.Layout(gtx)
-									}),
-								)
-							})
-						})
-					})
-				}))
-			}
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-		})
+// battleDialog 进入对战模式弹层（共用 BattleLauncher，KG-009 居中口径——
+// 与记录库启动器同界面；调用方在 Stack 顶层叠放）。
+func (r *ReplayView) battleDialog(gtx layout.Context) {
+	r.launcher.Layout(gtx, func(mode BattleMode, side string, _ any) {
+		if r.OnBattle != nil {
+			r.OnBattle(mode, r.BattleFen(), side)
+		}
 	})
 }
