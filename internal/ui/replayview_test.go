@@ -34,8 +34,8 @@ func newReplay(puzzle *state.ParsedPuzzleView) *ReplayView {
 
 func TestReplaySetPuzzleParsesMoves(t *testing.T) {
 	r := newReplay(replayPuzzle("e0e1", "e9e8"))
-	if len(r.moves) != 2 || r.pos != 0 || r.playing {
-		t.Fatalf("moves=%d pos=%d playing=%v", len(r.moves), r.pos, r.playing)
+	if len(r.moves) != 2 || r.pos != 0 || r.Playing() {
+		t.Fatalf("moves=%d pos=%d playing=%v", len(r.moves), r.pos, r.Playing())
 	}
 	if len(r.notation) != 2 {
 		t.Fatalf("记谱应 2 条，实际 %d", len(r.notation))
@@ -95,7 +95,8 @@ func TestReplayAutoPlayTicks(t *testing.T) {
 	if !r.Playing() || r.Pos() != 1 {
 		t.Fatalf("续播应保留位置：playing=%v pos=%d", r.Playing(), r.Pos())
 	}
-	r.OnTick(ReplayTick{Gen: r.gen})
+	r.OnTick(ReplayTick{Gen: r.gen}) // 第 2 步（末着应用，仍 playing）
+	r.OnTick(ReplayTick{Gen: r.gen}) // 完成心跳 → completed 自动停拍（spec ③）
 	if r.Playing() {
 		t.Fatal("到达末尾应自动停止")
 	}
@@ -109,7 +110,8 @@ func TestReplayAutoPlayTicks(t *testing.T) {
 func TestReplayRestartAfterComplete(t *testing.T) {
 	r := newReplay(replayPuzzle("e0e1"))
 	r.TogglePlay()
-	r.OnTick(ReplayTick{Gen: r.gen})
+	r.OnTick(ReplayTick{Gen: r.gen}) // 末着应用
+	r.OnTick(ReplayTick{Gen: r.gen}) // 完成心跳 → completed
 	if r.Pos() != 1 {
 		t.Fatalf("前置：应播完，实际 %d", r.Pos())
 	}
