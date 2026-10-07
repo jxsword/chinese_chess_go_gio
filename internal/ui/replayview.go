@@ -61,8 +61,10 @@ type ReplayView struct {
 	moveList   layout.List
 	rowClicks  map[int]*widget.Clickable
 
-	exportText string // 非空 = 下一帧写剪贴板
-	message    string // 状态行（已复制/错误）
+	exportText   string // 非空 = 待写剪贴板文本
+	exportViaGio bool   // PowerShell 通道失败 → 回退 gio WriteCmd（非 WSL 面）
+	clipSeq      int
+	message      string // 状态行（已复制/错误）
 }
 
 // NewReplayView 创建重放器（emit 可 nil = 测试同步场景）。
@@ -212,6 +214,31 @@ func (r *ReplayView) OnTick(ev ReplayTick) {
 	}
 }
 
+// copyAsync 异步写 Windows 剪贴板（KG-004 反方向；回执经事件总线）。
+func (r *ReplayView) copyAsync(text string) {
+	if r.emit == nil {
+		return // 测试场景
+	}
+	r.clipSeq++
+	seq := r.clipSeq
+	CopyToWindowsClipboardAsync(text, func(err error) {
+		r.emit("", ClipWriteDone{Seq: seq, Err: err}, nil)
+	})
+}
+
+// OnClipDone 剪贴板写回执（Seq 过期忽略；失败回退 gio WriteCmd）。
+func (r *ReplayView) OnClipDone(ev ClipWriteDone) {
+	if ev.Seq != r.clipSeq || r.exportText == "" {
+		return
+	}
+	if ev.Err != nil {
+		r.exportViaGio = true
+		return
+	}
+	r.exportText = ""
+	r.message = "PGN 已复制到剪贴板"
+}
+
 // Dispose 离开页面（停播放；铁律 #G5）。
 func (r *ReplayView) Dispose() { r.haltPlay() }
 
@@ -261,6 +288,7 @@ func (r *ReplayView) handleEvents(gtx layout.Context) {
 	case r.exportBtn.Clicked(gtx):
 		r.exportText = state.WritePgn(r.ExportRecord(), time.Now())
 		r.message = ""
+		r.copyAsync(r.exportText)
 	case r.battleBtn.Clicked(gtx):
 		if r.OnBattle != nil {
 			r.launcher.Open(nil)
@@ -288,8 +316,10 @@ func blackRowKey(i int) int { return -(i + 1) }
 // 进入对战模式弹层由 battleDialog 顶层承载（共用 BattleLauncher），调用方 Stack 叠放）。
 func (r *ReplayView) Layout(gtx layout.Context) layout.Dimensions {
 	r.handleEvents(gtx)
-	if r.exportText != "" {
+	// 剪贴板：PowerShell 通道失败时回退 gio WriteCmd（非 WSL 面）
+	if r.exportViaGio && r.exportText != "" {
 		gtx.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(r.exportText))})
+		r.exportViaGio = false
 		r.exportText = ""
 		r.message = "PGN 已复制到剪贴板"
 	}

@@ -204,6 +204,8 @@ func (p *CorpusPage) OnAppEvent(payload any) {
 		p.applyPaste(ev.Target, ev.Text, ev.Err)
 	case ReplayTick:
 		p.replay.OnTick(ev)
+	case ClipWriteDone:
+		p.replay.OnClipDone(ev)
 	}
 }
 

@@ -176,3 +176,11 @@ type RecordSaveDone struct {
 type RecordDeleteDone struct {
 	Err error
 }
+
+// ClipWriteDone 剪贴板写回执（00 §4 `clipboard:write`，Gio 新增 M5'）：
+// CopyToWindowsClipboardAsync（KG-004 反方向 PowerShell 通道）结算；Err 非 nil
+// 时页面回退 gio clipboard.WriteCmd（非 WSL 面）。
+type ClipWriteDone struct {
+	Seq int
+	Err error
+}

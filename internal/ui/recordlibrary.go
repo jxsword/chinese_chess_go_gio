@@ -84,6 +84,10 @@ type RecordLibraryPage struct {
 	pendingAction func(*state.GameRecordData)
 	pendingExport string
 	pendingShare  string
+	exportViaGio  bool // PowerShell 通道失败 → 回退 gio WriteCmd（回执在主循环处置）
+	shareViaGio   bool
+	clipExportSeq int
+	clipShareSeq  int
 	toastText     string
 	toastSeq      int
 
@@ -182,11 +186,41 @@ func (p *RecordLibraryPage) OnAppEvent(payload any) {
 		p.deletingTitle = ""
 		p.deletingID = 0
 		p.reload()
+	case ClipWriteDone:
+		switch {
+		case ev.Seq == p.clipExportSeq && p.pendingExport != "":
+			if ev.Err != nil {
+				p.exportViaGio = true // 回退 gio WriteCmd（Layout 处置）
+			} else {
+				p.pendingExport = ""
+				p.showToast("PGN 已复制")
+			}
+		case ev.Seq == p.clipShareSeq && p.pendingShare != "":
+			if ev.Err != nil {
+				p.shareViaGio = true
+			} else {
+				p.pendingShare = ""
+				p.showToast("棋谱文本已复制")
+			}
+		}
 	case ToastHide:
 		if ev.Seq == p.toastSeq {
 			p.toastText = ""
 		}
 	}
+}
+
+// copyAsync 异步写 Windows 剪贴板（KG-004 反方向；回执经事件总线回主循环
+// 处置——后台回调禁止直写页面字段，铁律 #G3）。
+func (p *RecordLibraryPage) copyAsync(text *string, seq *int) {
+	if p.env.Emit == nil || *text == "" {
+		return
+	}
+	*seq++
+	n := *seq
+	CopyToWindowsClipboardAsync(*text, func(err error) {
+		p.env.Emit("", ClipWriteDone{Seq: n, Err: err}, nil)
+	})
 }
 
 // openRecordByID 拉全量记录后分流（上游 fullRecord+actions 的异步形态）：
@@ -311,8 +345,10 @@ func (p *RecordLibraryPage) handleEvents(gtx layout.Context) {
 			p.launcher.Open(p.detail)
 		case p.exportBtn.Clicked(gtx):
 			p.pendingExport = state.WritePgn(*p.detail, time.Now())
+			p.copyAsync(&p.pendingExport, &p.clipExportSeq)
 		case p.shareBtn.Clicked(gtx):
 			p.pendingShare = state.WriteShareText(*p.detail)
+			p.copyAsync(&p.pendingShare, &p.clipShareSeq)
 		case p.deleteBtn.Clicked(gtx):
 			p.deletingTitle = p.detail.Title
 			p.deletingID = p.detail.ID
@@ -396,8 +432,10 @@ func (p *RecordLibraryPage) runAction(a int, summary storage.GameRecordSummary) 
 				p.launcher.Open(d)
 			case actExport:
 				p.pendingExport = state.WritePgn(*d, time.Now())
+				p.copyAsync(&p.pendingExport, &p.clipExportSeq)
 			case actShare:
 				p.pendingShare = state.WriteShareText(*d)
+				p.copyAsync(&p.pendingShare, &p.clipShareSeq)
 			}
 		})
 	}
@@ -406,22 +444,18 @@ func (p *RecordLibraryPage) runAction(a int, summary storage.GameRecordSummary) 
 // Layout 页面骨架：header + 列表 / 详情 + 弹层/toast（Stack 顶层）。
 func (p *RecordLibraryPage) Layout(gtx layout.Context) layout.Dimensions {
 	p.handleEvents(gtx)
-	// 剪贴板写（需 gtx；上一帧挂起的导出/分享——上游 api.clipboard.write）
-	for _, text := range []string{p.pendingExport, p.pendingShare} {
-		if text == "" {
-			continue
+	// 剪贴板：PowerShell 通道失败时回退 gio WriteCmd（非 WSL 面）
+	for _, fb := range []*struct {
+		text   *string
+		viaGio *bool
+		label  string
+	}{{&p.pendingExport, &p.exportViaGio, "PGN 已复制"}, {&p.pendingShare, &p.shareViaGio, "棋谱文本已复制"}} {
+		if *fb.viaGio && *fb.text != "" {
+			gtx.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(*fb.text))})
+			*fb.viaGio = false
+			*fb.text = ""
+			p.showToast(fb.label)
 		}
-		gtx.Execute(clipboard.WriteCmd{Type: "text/plain", Data: io.NopCloser(strings.NewReader(text))})
-	}
-	wasExport := p.pendingExport != ""
-	p.pendingExport = ""
-	if wasExport {
-		p.showToast("PGN 已复制")
-	}
-	wasShare := p.pendingShare != ""
-	p.pendingShare = ""
-	if wasShare {
-		p.showToast("棋谱文本已复制")
 	}
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, ThemeSurface)
