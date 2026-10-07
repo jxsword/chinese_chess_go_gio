@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jxsword/chinese_chess_go_gio/internal/llm"
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
 	"github.com/jxsword/chinese_chess_go_gio/internal/solver"
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
@@ -327,5 +328,84 @@ func TestStudioRecordSaveFailure(t *testing.T) {
 	page.onRecordSaved(errors.New("db closed"))
 	if !page.sheetOpen || page.sheet.recordSaved {
 		t.Fatal("保存失败时面板应标记失败")
+	}
+}
+
+// spec: 识图流程——三槽位掩码配置加载 → DR-009 借用解析（黑→红，注记来源）
+// → 读文件+识图（fake VisionReader 面不可注入，走 ReadDataAsync+真实 Reader?
+// 改为直接驱动 onVisionDone/onFilePicked 状态机 + ResolveAssistantConfig 分支）。
+func TestStudioVisionSlotsAndGuards(t *testing.T) {
+	page, _, _, _ := newTestStudioPage(t)
+
+	// 槽位未齐：识图入口拦截
+	page.beginVisionRead("/tmp/nope.png")
+	if page.reading || page.visionMessage == "" {
+		t.Fatal("配置未齐应拦截并提示")
+	}
+
+	// 三槽位回执（助手槽空 → 借用黑方）
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_assistant"})
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_black", Config: &llm.LlmEndpointConfig{
+		BaseURL: "https://api.example.com/v1", Model: "vl-model", Preset: "dashscope",
+	}})
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_red"})
+	if !page.visionSlotsLoaded() {
+		t.Fatal("三槽位应已加载")
+	}
+
+	// 助手全空 + 黑方有配置 → 识图发起并注记借用来源（K33：reading 置位）
+	page.beginVisionRead("/tmp/board.png")
+	if !page.reading {
+		t.Fatal("识图应置位 reading")
+	}
+	if !strings.Contains(page.visionMessage, "已临时借用黑方对战配置") ||
+		!strings.Contains(page.visionMessage, "可能不支持识图") {
+		t.Fatalf("借用注记 = %q", page.visionMessage)
+	}
+
+	// K33 防重入：reading 中重复发起被拦
+	reqID := page.visionRequest
+	page.startVisionPick()
+	page.beginVisionRead("/tmp/again.png")
+	if page.visionRequest != reqID {
+		t.Fatal("识别中重复发起应被拦截")
+	}
+
+	// 回执：迟到 id 丢弃（识别态保持等待真实回执）；有效 FEN 载入棋盘
+	page.OnAppEvent(VisionReadDone{RequestID: "stale"})
+	if !page.reading {
+		t.Fatal("迟到回执应被丢弃（识别态保持）")
+	}
+	grid, err := rules.ParseBoardFen("3k5/9/9/9/R8/8R/9/9/9/4K4 w - - 0 1")
+	if err != nil {
+		t.Fatalf("ParseBoardFen: %v", err)
+	}
+	_ = grid
+	page.OnAppEvent(VisionReadDone{RequestID: reqID, Fen: "3k5/9/9/9/R8/8R/9/9/9/4K4 w - - 0 1"})
+	if page.reading {
+		t.Fatal("回执后应复位 reading")
+	}
+	if !page.visionLoaded || len(page.grid[4]) == 0 || page.grid[4][0] == nil {
+		t.Fatal("识图结果应载入棋盘")
+	}
+	if !strings.Contains(page.visionMessage, "请人工核对后再求解") {
+		t.Fatalf("校正流提示 = %q", page.visionMessage)
+	}
+}
+
+// spec: 识图失败路径——错误进消息区，不落盘面。
+func TestStudioVisionError(t *testing.T) {
+	page, _, _, _ := newTestStudioPage(t)
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_assistant"})
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_black"})
+	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_red"})
+	page.beginVisionRead("/tmp/board.png")
+	reqID := page.visionRequest
+	page.OnAppEvent(VisionReadDone{RequestID: reqID, Err: errors.New("已重试 2 次仍失败")})
+	if page.reading || page.visionLoaded {
+		t.Fatal("失败后应复位且不载入")
+	}
+	if !strings.Contains(page.visionMessage, "识图失败") {
+		t.Fatalf("消息 = %q", page.visionMessage)
 	}
 }

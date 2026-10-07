@@ -32,10 +32,12 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
+	"github.com/jxsword/chinese_chess_go_gio/internal/llm"
 	"github.com/jxsword/chinese_chess_go_gio/internal/parsers"
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
 	"github.com/jxsword/chinese_chess_go_gio/internal/solver"
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
+	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
 )
 
 // solveTickInterval 求解进度节拍（上游 setInterval 200ms 同口径，00 §4 solve:tick）。
@@ -143,7 +145,33 @@ type StudioPage struct {
 
 	toastText string
 	toastSeq  int
+
+	// 识图（T6'.3，08 §7 识图 Tab；K33 无中途取消，按钮 disabled 防重入）
+	vision          *VisionClient
+	pickBtn         widget.Clickable
+	loadPathBtn     widget.Clickable
+	visionPathEd    widget.Editor
+	reading         bool
+	visionElapsed   int
+	visionRequest   string
+	dialogRequest   string // 文件对话框在途（FilePickDone 关联）
+	visionMessage   string
+	visionLoaded    bool // 识图结果已载入棋盘（显示校正流按钮）
+	visionStop      chan struct{}
+	visionTickerGen int
+	asstConfig      *llm.LlmEndpointConfig
+	blkConfig       *llm.LlmEndpointConfig
+	redConfig       *llm.LlmEndpointConfig
+	asstLoaded      bool
+	blkLoaded       bool
+	redLoaded       bool
+	corrBtn         widget.Clickable // 摆盘校正（切摆盘校验 Tab 点击纠错）
+	revisionBtn     widget.Clickable // 重新识别（重新提交）
+	adoptBtn        widget.Clickable // 直接采用（切求解 Tab）
 }
+
+// visionSlotsLoaded 三槽位配置是否齐（DR-009 借用解析前置）。
+func (p *StudioPage) visionSlotsLoaded() bool { return p.asstLoaded && p.blkLoaded && p.redLoaded }
 
 // solveSheet 结果面板数据（一次求解一张；EndgameStudioPage SolveSheet）。
 type solveSheet struct {
@@ -169,8 +197,15 @@ func NewStudioPage(env LlmEnv, hooks StudioHooks) *StudioPage {
 		sheetList:  layout.List{Axis: layout.Vertical},
 	}
 	p.solver = NewSolverClient(env.GameEnv, nil)
+	p.vision = NewVisionClient(env)
 	p.board.onTap = p.onCellTap
 	p.board.blocked = p.modalOpen
+	// 三槽位配置异步加载（DR-009 借用解析前置；掩码回读——#G7）
+	if env.Store != nil && env.NewRequestID != nil {
+		env.Store.LoadSlotAsync(env.NewRequestID("cfg-asst"), storage.SlotAssistant)
+		env.Store.LoadSlotAsync(env.NewRequestID("cfg-blk"), storage.SlotBlack)
+		env.Store.LoadSlotAsync(env.NewRequestID("cfg-red"), storage.SlotRed)
+	}
 	return p
 }
 
@@ -433,6 +468,157 @@ func (p *StudioPage) onRecordSaved(err error) {
 	p.showToast("棋局已保存到棋谱库（未求解）")
 }
 
+// ---- 识图（T6'.3，EndgameStudioPage readImageFile 语义 + 08 §7 人工校正流）----
+
+// startVisionPick 选择棋盘图片（K33：reading 时按钮 disabled——守卫拦截重入）。
+func (p *StudioPage) startVisionPick() {
+	if p.reading {
+		return
+	}
+	if !p.visionSlotsLoaded() {
+		p.visionMessage = "助手配置加载中，请稍后重试"
+		return
+	}
+	p.dialogRequest = p.newID("dialog")
+	id := p.dialogRequest
+	PickFileAsync(func(path string, err error) {
+		p.env.Emit("", FilePickDone{RequestID: id, Path: path, Err: err}, nil)
+	})
+}
+
+// loadVisionFromPath 从路径直载（D-006 页面内路径输入兜底）。
+func (p *StudioPage) loadVisionFromPath() {
+	if p.reading {
+		return
+	}
+	path := strings.TrimSpace(p.visionPathEd.Text())
+	if path == "" {
+		return
+	}
+	p.beginVisionRead(path)
+}
+
+// onFilePicked 文件选择回执（取消=空串无操作）。
+func (p *StudioPage) onFilePicked(ev FilePickDone) {
+	if ev.RequestID != p.dialogRequest || p.disposed {
+		return
+	}
+	p.dialogRequest = ""
+	if ev.Err != nil {
+		p.showToast("打开图片失败：" + ev.Err.Error())
+		return
+	}
+	if ev.Path == "" {
+		return
+	}
+	p.beginVisionRead(ev.Path)
+}
+
+// beginVisionRead 识图请求发起（DR-009：助手槽全空时运行时借用对战配置 黑→红，
+// 仅本次请求内存不写入助手槽；借用时消息区注记来源与识图风险——上游
+// readImageFile resolved.source 分支逐字）。
+func (p *StudioPage) beginVisionRead(path string) {
+	if !p.visionSlotsLoaded() {
+		p.visionMessage = "助手配置加载中，请稍后重试"
+		return
+	}
+	resolved := state.ResolveAssistantConfig(p.asstConfig, p.blkConfig, p.redConfig)
+	if resolved.Config == nil {
+		p.visionMessage = "请先配置研究助手模型（需视觉模型）"
+		return
+	}
+	p.visionMessage = ""
+	p.visionLoaded = false
+	if resolved.Source != state.AssistantSourceAssistant {
+		p.visionMessage = fmt.Sprintf("研究助手未配置，已临时借用%s对战配置（不写入研究助手配置）——对战配置可能不支持识图", state.AssistantSourceLabel(resolved.Source))
+	}
+	// 计时从图片选定开始（文件浏览期间不计入——upstream readImageFile）
+	p.reading = true
+	p.visionElapsed = 0
+	p.visionRequest = p.newID("vision")
+	p.startVisionTicker()
+	p.vision.ReadFileAsync(p.visionRequest, path, *resolved.Config, resolved.AuthSlot)
+}
+
+// startVisionTicker 识图已用时 1s 节拍（00 §4 timer:tick 页面级计时器共用；
+// goroutine 只 emit，#G3；迟到 tick 由 reading 标志守卫）。
+func (p *StudioPage) startVisionTicker() {
+	p.visionTickerGen++
+	stop := make(chan struct{})
+	p.visionStop = stop
+	if p.env.Emit == nil {
+		return
+	}
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Second):
+			}
+			p.env.Emit("", TimerTick{}, nil)
+		}
+	}()
+}
+
+func (p *StudioPage) stopVisionTicker() {
+	p.visionTickerGen++
+	if p.visionStop != nil {
+		close(p.visionStop)
+		p.visionStop = nil
+	}
+}
+
+// onVisionDone 识图回执（主 goroutine；requestId 关联，迟到丢弃 #G5）。
+func (p *StudioPage) onVisionDone(ev VisionReadDone) {
+	if ev.RequestID != p.visionRequest || p.disposed {
+		return
+	}
+	p.visionRequest = ""
+	p.stopVisionTicker()
+	p.reading = false
+	if ev.Err != nil {
+		p.visionMessage = "识图失败：" + ev.Err.Error()
+		return
+	}
+	grid, err := rules.ParseBoardFen(ev.Fen)
+	if err != nil {
+		p.visionMessage = "识图失败：" + err.Error()
+		return
+	}
+	p.grid = grid
+	p.redTurn = rules.ParseTurnFen(ev.Fen)
+	p.touchGrid()
+	p.visionLoaded = true
+	pieceCount := 0
+	for _, row := range grid {
+		for _, q := range row {
+			if q != nil {
+				pieceCount++
+			}
+		}
+	}
+	// 人工校正流提示（05 §7 管线尾段：识图结果必须人工核对才可求解）
+	p.visionMessage = fmt.Sprintf("识别到 %d 枚棋子（%s方行棋），已载入棋盘，请人工核对后再求解",
+		pieceCount, turnName(p.redTurn))
+}
+
+// onSlotLoaded 凭据槽位掩码回读（DR-009 借用解析输入）。
+func (p *StudioPage) onSlotLoaded(ev SecureSlotLoaded) {
+	var cfg llm.LlmEndpointConfig
+	if ev.Config != nil {
+		cfg = *ev.Config
+	}
+	switch ev.Slot {
+	case storage.SlotAssistant:
+		p.asstConfig, p.asstLoaded = &cfg, true
+	case storage.SlotBlack:
+		p.blkConfig, p.blkLoaded = &cfg, true
+	case storage.SlotRed:
+		p.redConfig, p.redLoaded = &cfg, true
+	}
+}
+
 // sheetStatusText 结果面板标题（EndgameStudioPage statusText）。
 func sheetStatusText(result solver.WireSolveResult) string {
 	switch result.Status {
@@ -481,6 +667,16 @@ func (p *StudioPage) OnAppEvent(payload any) {
 		if ev.Seq == p.toastSeq {
 			p.toastText = ""
 		}
+	case TimerTick:
+		if p.reading {
+			p.visionElapsed++ // 识图已用时（K33：无取消入口，仅计时呈现）
+		}
+	case SecureSlotLoaded:
+		p.onSlotLoaded(ev)
+	case FilePickDone:
+		p.onFilePicked(ev)
+	case VisionReadDone:
+		p.onVisionDone(ev)
 	}
 }
 
@@ -496,6 +692,10 @@ func (p *StudioPage) Dispose() {
 	}
 	p.stopSolveTicker()
 	p.solving = false
+	p.stopVisionTicker()
+	// K33：识图请求无中途取消入口——在途回执经 disposed 标志与 requestId
+	// 双重丢弃，迟到结果不落盘面。
+	p.reading = false
 	p.launcher.Close()
 }
 
@@ -713,7 +913,70 @@ func (p *StudioPage) layoutSolveTab(gtx layout.Context) layout.Dimensions {
 }
 
 func (p *StudioPage) layoutVisionTab(gtx layout.Context) layout.Dimensions {
-	return layout.Inset{Left: unit.Dp(12), Top: unit.Dp(8)}.Layout(gtx, studioLabel("图片识图对接随 T6'.3 落地", 13))
+	pickLabel := "选择棋盘图片并识别"
+	if p.reading {
+		pickLabel = fmt.Sprintf("识别中… 已用时 %d 秒", p.visionElapsed)
+	}
+	return layout.Inset{Left: unit.Dp(12), Right: unit.Dp(12), Top: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			// 主入口（K33：识别中 disabled——变灰 + 守卫拦截）
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				btn := material.Button(PageTheme, &p.pickBtn, pickLabel)
+				if p.reading {
+					btn.Background = ThemeSurfaceDim
+					btn.Color = color.NRGBA(ThemeSeedDark)
+					btn.Color.A = 120
+				}
+				return btn.Layout(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: unit.Dp(2)}.Layout(gtx, studioLabel(
+					"一般 5~20 秒；大图或思考型模型会更久，单次超时 120 秒 × 最多 2 次（识别中不可取消）。", 12))
+			}),
+			// 路径兜底（D-006：页面内路径输入保留为兜底）
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return layoutEditorBox(gtx, &p.visionPathEd, "图片路径兜底（对话框不可用时手填）")
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return layout.Inset{Top: unit.Dp(4)}.Layout(gtx, studioSmallButton(&p.loadPathBtn, "从路径载入并识别"))
+						}),
+					)
+				})
+			}),
+			// 识图消息
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if p.visionMessage == "" {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					l := material.Body2(PageTheme, p.visionMessage)
+					l.TextSize = unit.Sp(12)
+					l.Color = ThemeSeedDark
+					return l.Layout(gtx)
+				})
+			}),
+			// 人工校正流按钮（识别结果载入后出现——08 §7）
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !p.visionLoaded {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layoutOptionChips(gtx, 72,
+						chipOpt{click: &p.corrBtn, label: "去摆盘校正", selected: false},
+						chipOpt{click: &p.revisionBtn, label: "重新识别", selected: false},
+						chipOpt{click: &p.adoptBtn, label: "直接采用（去求解）", selected: false},
+					)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: unit.Dp(6)}.Layout(gtx, studioLabel(
+					"识别结果会载入上方棋盘：在摆盘校验页点击纠错（选棋子放置/橡皮清除/取走），核对无误后即可求解。建议使用棋盘截图或正俯拍照片。", 12))
+			}),
+		)
+	})
 }
 
 // layoutActions 底部操作行（保存棋局 / AI 求破解——上游全局底部按钮行）。
@@ -808,6 +1071,24 @@ func (p *StudioPage) handleEvents(gtx layout.Context) {
 	if p.solveBtn.Clicked(gtx) {
 		p.startSolve()
 	}
+	if p.assistantBtn.Clicked(gtx) {
+		p.openAssistantDialog()
+	}
+	if p.pickBtn.Clicked(gtx) {
+		p.startVisionPick()
+	}
+	if p.loadPathBtn.Clicked(gtx) {
+		p.loadVisionFromPath()
+	}
+	if p.corrBtn.Clicked(gtx) {
+		p.tabIndex = 0 // 人工校正：摆盘校验页点击纠错（候选棋子选择器=调色板）
+	}
+	if p.revisionBtn.Clicked(gtx) {
+		p.startVisionPick() // 重新提交
+	}
+	if p.adoptBtn.Clicked(gtx) {
+		p.tabIndex = 1 // 直接采用：进入求解
+	}
 }
 
 // consumeEdges 弹窗打开时消费底层控件本帧点击边沿（防穿透，不触发动作）。
@@ -833,6 +1114,12 @@ func (p *StudioPage) consumeEdges(gtx layout.Context) {
 	}
 	p.saveBtn.Clicked(gtx)
 	p.solveBtn.Clicked(gtx)
+	p.pickBtn.Clicked(gtx)
+	p.loadPathBtn.Clicked(gtx)
+	p.corrBtn.Clicked(gtx)
+	p.revisionBtn.Clicked(gtx)
+	p.adoptBtn.Clicked(gtx)
+	p.assistantBtn.Clicked(gtx)
 }
 
 func (p *StudioPage) selectPiece(side rules.Side, idx int) {
@@ -890,6 +1177,11 @@ func (p *StudioPage) layoutOverlays(gtx layout.Context) layout.Dimensions {
 		DrawToast(gtx, p.toastText)
 	}
 	return layout.Dimensions{Size: gtx.Constraints.Max}
+}
+
+// openAssistantDialog 研究助手配置弹窗（T6'.4 落地；此前占位提示）。
+func (p *StudioPage) openAssistantDialog() {
+	p.showToast("研究助手配置弹窗随 T6'.4 落地")
 }
 
 // launchBattle 进入对战联动（结果面板底部按钮；起点=求解局面 FEN，玩家执求解方）。

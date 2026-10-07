@@ -144,6 +144,69 @@ func saveFileCmd(defaultName string) (*exec.Cmd, func(output string) string, err
 	return nil, nil, errDialogUnavailable
 }
 
+// PickFileAsync 文件选择对话框（识图图片载入，D-006 系统命令方案同型；
+// done 的 path 为空 = 用户取消；I/O 在后台 goroutine——00 §4 `dialog:pickfile`）。
+func PickFileAsync(done func(path string, err error)) {
+	if done == nil {
+		return
+	}
+	go func() {
+		cmd, parse, err := pickFileCmd()
+		if err != nil {
+			done("", err)
+			return
+		}
+		hideWindow(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			if _, ok := err.(*exec.ExitError); ok && len(parse(string(out))) == 0 {
+				done("", nil) // 取消
+				return
+			}
+			done("", err)
+			return
+		}
+		path := parse(string(out))
+		if path == "" {
+			done("", nil)
+			return
+		}
+		if st, serr := os.Stat(path); serr != nil || st.IsDir() {
+			done("", fmt.Errorf("所选文件不可读: %s", path))
+			return
+		}
+		done(filepath.Clean(path), nil)
+	}()
+}
+
+// pickFileCmd 打开文件对话框命令（PNG/JPEG 过滤——识图 MIME 支持面，05 §7）。
+func pickFileCmd() (*exec.Cmd, func(output string) string, error) {
+	switch runtime.GOOS {
+	case "linux":
+		if _, err := exec.LookPath("zenity"); err == nil {
+			return exec.Command("zenity", "--file-selection",
+					"--file-filter=图片 (png/jpeg) | *.png *.jpg *.jpeg",
+					"--file-filter=所有文件 | *"),
+				func(out string) string { return strings.TrimSpace(out) }, nil
+		}
+		if _, err := exec.LookPath("kdialog"); err == nil {
+			return exec.Command("kdialog", "--getopenfilename", string(os.Getenv("HOME")), "*.png *.jpg *.jpeg"),
+				func(out string) string { return strings.TrimSpace(out) }, nil
+		}
+	case "darwin":
+		return exec.Command("osascript", "-e", "POSIX path of (choose file of type {\"public.png\", \"public.jpeg\"})"),
+			func(out string) string { return strings.TrimSpace(out) }, nil
+	case "windows":
+		script := "Add-Type -AssemblyName System.Windows.Forms; " +
+			"$f = New-Object System.Windows.Forms.OpenFileDialog; " +
+			"$f.Filter = '图片 (png/jpeg)|*.png;*.jpg;*.jpeg|所有文件|*.*'; " +
+			"if ($f.ShowDialog() -eq 'OK') { $f.FileName }"
+		return exec.Command("powershell", "-NoProfile", "-Command", script),
+			func(out string) string { return strings.TrimSpace(out) }, nil
+	}
+	return nil, nil, errDialogUnavailable
+}
+
 // hideWindow Windows 下隐藏对话框控制台宿主窗（非 Windows no-op）。
 func hideWindow(cmd *exec.Cmd) {
 	if runtime.GOOS == "windows" && cmd.SysProcAttr == nil {
