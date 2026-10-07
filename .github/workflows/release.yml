@@ -242,17 +242,19 @@ jobs:
           VER: ${{ github.ref_name }}
         run: |
           VER_NUM="${VER#v}"
-          EXPECTED=$(printf '%s' \
-            "${APP_NAME}_${VER_NUM}_amd64.deb," \
-            "${APP_NAME}-${VER_NUM}-linux-amd64.AppImage," \
-            "${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz," \
-            "${APP_NAME}-${VER_NUM}-windows-amd64.exe," \
-            "${APP_NAME}-${VER_NUM}-macos-universal.dmg")
-          ACTUAL=$(gh release view "$VER" --json isDraft,assets \
-            --jq '[.isDraft] + ([.assets[].name] | sort) | @csv')
-          echo "draft/资产实际：$ACTUAL"
-          echo "资产预期：    $EXPECTED"
-          test "$(gh release view "$VER" --json isDraft --jq .isDraft)" = "true"
+          # 预期名单用与 jq sort 相同的 ASCII 序生成（第三轮实证：手写顺序与
+          # ASCII 序不一致——'-'(0x2D) < '_'(0x5F)，deb 被排到最后——误报不一致）。
+          EXPECTED=$(printf '%s\n' \
+            "${APP_NAME}_${VER_NUM}_amd64.deb" \
+            "${APP_NAME}-${VER_NUM}-linux-amd64.AppImage" \
+            "${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz" \
+            "${APP_NAME}-${VER_NUM}-windows-amd64.exe" \
+            "${APP_NAME}-${VER_NUM}-macos-universal.dmg" \
+            | LC_ALL=C sort | paste -sd, -)
           ASSETS=$(gh release view "$VER" --json assets --jq '[.assets[].name] | sort | join(",")')
+          echo "draft/资产实际：$(gh release view "$VER" --json isDraft --jq .isDraft)"
+          echo "资产预期：    $EXPECTED"
+          echo "资产实际：    $ASSETS"
+          test "$(gh release view "$VER" --json isDraft --jq .isDraft)" = "true"
           test "$ASSETS" = "$EXPECTED" || { echo "资产名单与预期不一致"; exit 1; }
           echo "自校验通过：draft=true，5 项资产逐一致"
