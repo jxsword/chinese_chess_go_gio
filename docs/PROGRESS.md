@@ -50,6 +50,14 @@ release.yml（上游 5 轮踩坑点逐条吸收 + Windows 形态 DR-G005）、T7
 | 3 | 真实 LLM 端点手测（人机 LLM 一整局 + LLM vs LLM 一整局 + 求解辅助 + 识图，思维链关闭生效） | ⏳ 用户执行（清单 #4） |
 | 4 | MatchRunner 四 profile 报告可复现 | ✅ mock 端点协议面已证（16 字段×8 局）；⏳ 真实端点同数量级对比待用户（清单 #5） |
 
+### M7' CI 反馈修复轮（2026-10-07，§6.2 流程）
+
+- **Release 演练首跑（v1.0.0-rc1）Windows CI 失败**：`internal/ui/filedialog_windows.go` 多余
+  `os/exec` import（M6' T6'.3 引入）——平台专属编译单元在 Linux 不参与编译，本地质量门
+  不可见；ubuntu/macOS 两腿全绿佐证诊断。修复=删多余 import（commit 5753548）；
+  **流程补强**：本地补跑 `GOOS=windows go vet ./... && GOOS=windows go build .` 全量复验
+  通过（仅有的两个 build-tag 文件均已覆盖）。后续平台专属文件改动一律加 GOOS 交叉 vet。
+
 ## 请手测清单（M7'，用户执行）
 
 > 质量门与 T7'.1/T7'.2 自动验证项已全绿（见上表），以下为验收门剩余项。
