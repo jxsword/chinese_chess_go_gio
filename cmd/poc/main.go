@@ -53,14 +53,16 @@ func main() {
 }
 
 // demoRecords M5' 记录库页渲染冒烟（POC 专用）：内嵌一条对局 + 一条残局
-//（多解）验证列表/详情/线路切换/启动器渲染。
+// （多解）验证列表/详情/线路切换/启动器渲染。
 func demoRecords() {
 	w := app.OpenWindow(app.WindowConfig{Title: "M5' records", Width: unit.Dp(1024), Height: unit.Dp(768)})
 	seq := 0
 	repo := &recordsFakeRepo{w: w, seq: &seq, data: recordsSample()}
 	page := ui.NewRecordLibraryPage(ui.GameEnv{
-		Records:      repo,
-		Emit:         func(id string, payload any, err error) { w.Emit(app.AppEvent{RequestID: id, Payload: payload, Err: err}) },
+		Records: repo,
+		Emit: func(id string, payload any, err error) {
+			w.Emit(app.AppEvent{RequestID: id, Payload: payload, Err: err})
+		},
 		Cancel:       w.Cancel,
 		NewRequestID: func(prefix string) string { seq++; return fmt.Sprintf("%s-%d", prefix, seq) },
 	}, ui.RecordLibraryHooks{})

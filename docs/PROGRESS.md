@@ -70,6 +70,23 @@ T5'.1~T5'.3 完成，T5'.4 文件对话框决策项已出决策矩阵**待用户
 （coordPair 仅识别 JSON 形状，直传 [2]int 全解码失败）；②详情页"返回"独立
 点击器回列表（原误用主页返回）；③记录卡铺满宽+信息卡 360dp（chips 裁切）。
 
+修复轮 3（验收反馈：语料重放器弹窗错位不可点/剪贴板中文乱码/导入本地语料）：
+1. **【修复】进入对战启动器统一共用组件**（commit e018469）：语料重放器旧
+   弹窗 layout.Center 在 Stack Stacked 子节点退化为左上角贴边（KG-009 同类，
+   图1），且无关闭入口。提取 ui/battlelauncher.go（宏量测+op.Offset 居中+
+   取消/返回+人机 AI 执方选择步），replayview/recordlibrary 两处同界面；
+   poc 实测模式点击/取消均生效（日志取证）。
+2. **【修复】剪贴板中文乱码**（commit 867aebd）：gio clipboard.WriteCmd 经
+   WSLg 桥接写 CJK 乱码（KG-004 反方向）——导出 PGN/分享文本改走
+   CopyToWindowsClipboardAsync（PowerShell Set-Clipboard，UTF-8 base64），
+   回执经 clipboard:write 事件（00 §4 已登记）toast 提示，失败回退
+   WriteCmd（非 WSL 面）。PGN 中文头（Event/棋手名）为上游快照锁定协议面，
+   乱码系传输层。
+3. **【新增】导入本地语料目录**（commit 7c68e34，D-005）：缺失引导页新增
+   路径输入（Editor+粘贴按钮）+目录存在性校验+使用该目录/恢复默认 → 写
+   corpus.userPath → 重扫；用户设置路径优先（ResolveCorpusDir），不复制
+   不安装到下载位置——与用户指定语义逐字对应。
+
 ### M5' 验证门结果
 
 - 语料下载/解析手测：**待用户执行**（真实 45MB 包下载/取消/半成品保留，见手测清单）；
