@@ -14,7 +14,7 @@
 - **UI 层**：Gio 从零自绘（DR-G003，internal/ui + internal/app），交互规格事实源=上游 08 文档 + Electron 版组件；
 - 本仓库设计文档（`design_docs/`）是 Gio 版架构与工程事实源；领域协议/算法以上游同名文档与复制物为逐字事实源，冲突时按 design_docs/README.md 的归属裁决。
 
-## 技术栈（已定稿，见 design_docs/decision_log.md DR-G001~G003，不得擅自更换）
+## 技术栈（已定稿，见 design_docs/decision_log.md DR-G001 起，不得擅自更换）
 
 - 语言：**Go 1.26+**；GUI：**gioui.org**（立即模式全自绘）+ **go-text/typesetting**（文本整形/中文）
 - 数据库：**modernc.org/sqlite**（复制物不变）；凭据：OS keyring + 明文 0600 回退（复制物不变）
@@ -51,8 +51,18 @@ go run .               # Gio 应用开发模式（WSLg 窗口）
 go test ./... -race    # Go 全量测试（质量门标准口径）
 gofmt -l . && go vet ./...   # 质量门 lint 部分
 go run ./cmd/eval      # MatchRunner 能力评估（LLM_BASE_URL/LLM_MODEL 环境变量）
+go run ./cmd/poc board # POC/冒烟入口（board/anim/ime/list/corpus）
 go build -ldflags "-X main.version=..."   # 生产构建（单二进制）
 ```
+
+**平台专属编译单元（M7' Release 演练教训）**：改动 build-tag 文件（如
+`internal/ui/filedialog_windows.go`）后，本地质量门不可见——必须补跑
+`GOOS=windows go vet ./... && GOOS=windows go build .` 交叉复验。
+
+**项目状态**：v1.0.0 已发布（2026-10-07，M0'~M7' 全部验收通过；进度与维护
+记录见 docs/PROGRESS.md，历史存档 docs/PROGRESS-archive.md）。后续改动按
+维护轮口径：行为变更先改 design_docs 对应章节（同 commit），收尾更新
+docs/PROGRESS.md，质量门全绿。
 
 **WSL 开发环境前提**（M0' POC-5 实测，推荐一次性 `sudo apt install -y libx11-xcb-dev libvulkan-dev` 消除全部两项；无 sudo 时按 PROGRESS.md 的用户级等价物）：
 
