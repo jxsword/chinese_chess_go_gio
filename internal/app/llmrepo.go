@@ -8,6 +8,7 @@ package app
 import (
 	"errors"
 	"log"
+	"sync"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/llm"
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
@@ -19,10 +20,20 @@ import (
 type llmStore struct {
 	store *DataStore
 	emit  func(requestID string, payload any, err error)
+	wg    *sync.WaitGroup // 后台 I/O 计数（进程退出前 Wait 收口）
 }
 
-func newLlmStore(store *DataStore, emit func(requestID string, payload any, err error)) *llmStore {
-	return &llmStore{store: store, emit: emit}
+func newLlmStore(store *DataStore, emit func(requestID string, payload any, err error), wg *sync.WaitGroup) *llmStore {
+	return &llmStore{store: store, emit: emit, wg: wg}
+}
+
+// goIO 后台 I/O 计数启动（退出前 Wait 收口——M7' 维护轮）。
+func (s *llmStore) goIO(fn func()) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		fn()
+	}()
 }
 
 // errStorageUnavailable 存储降级口径（与"本地存储不可用"同文案族）。
@@ -45,20 +56,20 @@ func slotToLlm(cfg *storage.SlotConfig) *llm.LlmEndpointConfig {
 
 // LoadSlotAsync 实现 ui.LlmStore（掩码回读——Credentials.Get 已掩码，#G7）。
 func (s *llmStore) LoadSlotAsync(requestID, slot string) {
-	go func() {
+	s.goIO(func() {
 		creds := s.store.Credentials()
 		if creds == nil {
 			s.emit(requestID, ui.SecureSlotLoaded{RequestID: requestID, Slot: slot}, nil)
 			return
 		}
 		s.emit(requestID, ui.SecureSlotLoaded{RequestID: requestID, Slot: slot, Config: slotToLlm(creds.Get(slot))}, nil)
-	}()
+	})
 }
 
 // SaveSlotAsync 实现 ui.LlmStore（掩码合并落盘——UI 持掩码 Key，复制物 Set
 // 不让掩码串覆盖真实 Key，防错 #8）。
 func (s *llmStore) SaveSlotAsync(requestID, slot string, cfg llm.LlmEndpointConfig) {
-	go func() {
+	s.goIO(func() {
 		creds := s.store.Credentials()
 		if creds == nil {
 			s.emit(requestID, ui.SecureSlotSaved{RequestID: requestID, Slot: slot, Err: errStorageUnavailable}, nil)
@@ -79,17 +90,17 @@ func (s *llmStore) SaveSlotAsync(requestID, slot string, cfg llm.LlmEndpointConf
 			stored = res.Stored
 		}
 		s.emit(requestID, ui.SecureSlotSaved{RequestID: requestID, Slot: slot, Stored: stored}, err)
-	}()
+	})
 }
 
 // SaveSettings 实现 ui.LlmStore（fire-and-forget：错误记日志不回执，上游
 // 防抖保存静默同语义；读侧 LlmEnv.Settings 为内存态不受影响）。
 func (s *llmStore) SaveSettings(settings state.LlmGameSettings, fields ...state.LlmSettingsField) {
-	go func() {
+	s.goIO(func() {
 		if err := state.SaveLlmSettings(s.store.Settings(), settings, fields...); err != nil {
 			log.Println("app: 对局设置保存失败:", err)
 		}
-	}()
+	})
 }
 
 // ResolveAPIKey 实现 ui.LlmStore（完整 Key；仅供传输层注入 Authorization——

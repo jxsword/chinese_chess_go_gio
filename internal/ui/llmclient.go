@@ -113,7 +113,7 @@ func (a *EngineRunnerAdapter) FindBestMoveEx(ctx context.Context, fen string, de
 	if err != nil {
 		return nil, err
 	}
-	id := "advisor-" + newAdvisorRequestID()
+	id := newAdvisorRequestID()
 	ch := a.runner.Submit(engine.Request{ID: id, Type: engine.ReqFindBestMoveEx, Payload: raw})
 	resp, err := waitEngineResp(ctx, a.runner, id, ch)
 	if err != nil {

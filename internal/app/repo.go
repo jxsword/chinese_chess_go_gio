@@ -14,6 +14,7 @@ package app
 
 import (
 	"log"
+	"sync"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/state"
 	"github.com/jxsword/chinese_chess_go_gio/internal/storage"
@@ -24,21 +25,31 @@ import (
 type gameRepo struct {
 	store *DataStore
 	emit  func(requestID string, payload any, err error)
+	wg    *sync.WaitGroup // 后台 I/O 计数（进程退出前 Wait 收口）
 }
 
-func newGameRepo(store *DataStore, emit func(requestID string, payload any, err error)) *gameRepo {
-	return &gameRepo{store: store, emit: emit}
+func newGameRepo(store *DataStore, emit func(requestID string, payload any, err error), wg *sync.WaitGroup) *gameRepo {
+	return &gameRepo{store: store, emit: emit, wg: wg}
+}
+
+// goIO 后台 I/O 计数启动（调用方持 wg；退出前 Wait 收口——M7' 维护轮）。
+func (r *gameRepo) goIO(fn func()) {
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		fn()
+	}()
 }
 
 // ---- state.GameRepo ----
 
 func (r *gameRepo) SaveGame(mode state.GameMode, fen string, moves [][]int) error {
-	go func() {
+	r.goIO(func() {
 		if err := r.saveSync(mode, fen, moves); err != nil {
 			log.Println("app: 自动保存失败:", err)
 			r.emit("", ui.DbSaveDone{Mode: mode, Err: err}, nil)
 		}
-	}()
+	})
 	return nil
 }
 
@@ -51,7 +62,7 @@ func (r *gameRepo) LoadLatest(mode state.GameMode) (*storage.SavedGame, error) {
 }
 
 func (r *gameRepo) DeleteForMode(mode state.GameMode) error {
-	go func() {
+	r.goIO(func() {
 		dao, err := r.store.DB()
 		if err != nil {
 			log.Println("app: 死局存档清理失败:", err)
@@ -60,30 +71,30 @@ func (r *gameRepo) DeleteForMode(mode state.GameMode) error {
 		if err := dao.DeleteForMode(string(mode)); err != nil {
 			log.Println("app: 死局存档清理失败:", err)
 		}
-	}()
+	})
 	return nil
 }
 
 // ---- ui.GameDB ----
 
 func (r *gameRepo) LoadLatestAsync(requestID string, mode state.GameMode) {
-	go func() {
+	r.goIO(func() {
 		saved, err := r.LoadLatest(mode)
 		if err != nil {
 			log.Println("app: 取档失败（开新局降级）:", err)
 		}
 		r.emit(requestID, ui.DbLoadDone{Mode: mode, Saved: saved}, err)
-	}()
+	})
 }
 
 func (r *gameRepo) SaveAsync(requestID string, mode state.GameMode, fen string, moves [][]int, manual bool) {
-	go func() {
+	r.goIO(func() {
 		err := r.saveSync(mode, fen, moves)
 		if err != nil {
 			log.Println("app: 保存棋局失败:", err)
 		}
 		r.emit(requestID, ui.DbSaveDone{Mode: mode, Manual: manual, Err: err}, nil)
-	}()
+	})
 }
 
 func (r *gameRepo) SaveSync(mode state.GameMode, fen string, moves [][]int) error {
@@ -105,7 +116,7 @@ func (r *gameRepo) saveSync(mode state.GameMode, fen string, moves [][]int) erro
 
 // RecordsListAsync 记录列表（后台读 → ui.RecordsListDone）。
 func (r *gameRepo) RecordsListAsync(requestID string) {
-	go func() {
+	r.goIO(func() {
 		dao, err := r.store.DB()
 		if err != nil {
 			r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: []storage.GameRecordSummary{}}, nil)
@@ -118,12 +129,12 @@ func (r *gameRepo) RecordsListAsync(requestID string) {
 			return
 		}
 		r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: records}, nil)
-	}()
+	})
 }
 
 // RecordsGetAsync 单条记录 → ui.RecordGetDone（Err 非 nil = 读取失败）。
 func (r *gameRepo) RecordsGetAsync(requestID string, id int64) {
-	go func() {
+	r.goIO(func() {
 		dao, err := r.store.DB()
 		if err != nil {
 			r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Err: err}, nil)
@@ -136,12 +147,12 @@ func (r *gameRepo) RecordsGetAsync(requestID string, id int64) {
 			return
 		}
 		r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Record: record}, nil)
-	}()
+	})
 }
 
 // RecordsSaveAsync 写入棋谱记录 → ui.RecordSaveDone（成功/失败均回执）。
 func (r *gameRepo) RecordsSaveAsync(requestID string, record state.GameRecordData) {
-	go func() {
+	r.goIO(func() {
 		dao, err := r.store.DB()
 		if err != nil {
 			r.emit(requestID, ui.RecordSaveDone{RequestID: requestID, Err: err}, nil)
@@ -154,12 +165,12 @@ func (r *gameRepo) RecordsSaveAsync(requestID string, record state.GameRecordDat
 			return
 		}
 		r.emit(requestID, ui.RecordSaveDone{RequestID: requestID}, nil)
-	}()
+	})
 }
 
 // RecordsDeleteAsync 删除棋谱 → ui.RecordDeleteDone。
 func (r *gameRepo) RecordsDeleteAsync(requestID string, id int64) {
-	go func() {
+	r.goIO(func() {
 		dao, err := r.store.DB()
 		if err != nil {
 			r.emit(requestID, ui.RecordDeleteDone{RequestID: requestID, Err: err}, nil)
@@ -170,5 +181,5 @@ func (r *gameRepo) RecordsDeleteAsync(requestID string, id int64) {
 			log.Println("app: 删除棋谱失败:", err)
 		}
 		r.emit(requestID, ui.RecordDeleteDone{RequestID: requestID, Err: err}, nil)
-	}()
+	})
 }

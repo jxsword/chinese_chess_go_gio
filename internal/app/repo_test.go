@@ -4,6 +4,7 @@ package app
 //（fire-and-forget 语义，07 §2 K3 对应）。
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 func TestGameRepo_SyncPaths(t *testing.T) {
 	s := OpenDataStore(t.TempDir())
 	defer s.Close()
-	repo := newGameRepo(s, func(string, any, error) {})
+	repo := newGameRepo(s, func(string, any, error) {}, &sync.WaitGroup{})
 
 	// SaveSync → LoadLatest 往返（DR-008 形状）
 	if err := repo.SaveSync(state.ModeHumanVsHuman, "fen-x", [][]int{{7, 7, 4, 7}}); err != nil {
@@ -38,7 +39,7 @@ func TestGameRepo_AutoSaveFireAndForget(t *testing.T) {
 			done <- d
 		}
 	}
-	repo := newGameRepo(s, emit)
+	repo := newGameRepo(s, emit, &sync.WaitGroup{})
 
 	// 自动保存路径：SaveGame 立即返回，后台写入失败时才有回执（此处成功→无回执）
 	if err := repo.SaveGame(state.ModeHumanVsHuman, "fen-y", nil); err != nil {

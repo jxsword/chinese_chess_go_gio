@@ -284,8 +284,10 @@ func (p *HumanVsAiPage) OnClose() {
 		return
 	}
 	data := p.store.VM.Serialize()
-	if err := p.env.DB.SaveSync(state.ModeHumanVsAi, data.Fen, data.Moves); err != nil {
-		log.Println("ui: 退出前保存失败（本地存储不可用）:", err)
+	if p.env.DB != nil { // 降级环境（无 DB 面）关闭窗口不得 panic——同 LLM 两页口径
+		if err := p.env.DB.SaveSync(state.ModeHumanVsAi, data.Fen, data.Moves); err != nil {
+			log.Println("ui: 退出前保存失败（本地存储不可用）:", err)
+		}
 	}
 }
 

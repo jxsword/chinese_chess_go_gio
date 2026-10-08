@@ -323,3 +323,35 @@ func TestPageBattleStartSkipsRestoreAndSetsFen(t *testing.T) {
 		t.Fatal("续战来源不写存档桶（canSave=false，防错 #6）")
 	}
 }
+
+// OnClose 降级环境（无 DB 面）不得 panic（M7' 维护轮：原直接 SaveSync 解引用
+// nil——同 LLM 两页口径）；有 DB 面时行为不变。
+func TestOnCloseNilDBDoesNotPanic(t *testing.T) {
+	f := newPageEnvFixture(newPageRepo(), true)
+	f.env.DB = nil
+	hvh := NewHumanVsHumanPage(f.env, HumanVsHumanHooks{})
+	hvh.OnClose()
+
+	hva := NewHumanVsAiPage(f.env, HumanVsAiHooks{})
+	hva.OnClose()
+	hva.Dispose()
+
+	// 有 DB 面：OnClose 仍走同步保存（回归锚点）
+	f2 := newPageEnvFixture(newPageRepo(), true)
+	p := NewHumanVsHumanPage(f2.env, HumanVsHumanHooks{})
+	p.OnAppEvent(DbLoadDone{Mode: state.ModeHumanVsHuman, Saved: nil})
+	p.store.VM.OnTap(7, 7)
+	p.store.VM.OnTap(7, 4)
+	p.OnClose()
+	f2.db.mu.Lock()
+	defer f2.db.mu.Unlock()
+	syncSaves := 0
+	for _, s := range f2.db.saves {
+		if s.Sync {
+			syncSaves++
+		}
+	}
+	if syncSaves != 1 {
+		t.Fatalf("OnClose with DB must save sync once, saves = %+v", f2.db.saves)
+	}
+}

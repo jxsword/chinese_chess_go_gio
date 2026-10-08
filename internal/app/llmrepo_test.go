@@ -5,6 +5,7 @@ package app
 // 回执形状（SecureSlotLoaded/Saved）、掩码不进 UI、ResolveAPIKey 只供注入。
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func (f *llmStoreFixture) wait(t *testing.T) llmReceipt {
 func TestLlmStoreSlotRoundtripMasked(t *testing.T) {
 	dir := t.TempDir()
 	f := newLlmStoreFixture(t, dir)
-	proxy := newLlmStore(f.store, f.emit)
+	proxy := newLlmStore(f.store, f.emit, &sync.WaitGroup{})
 
 	cfg := llm.LlmEndpointConfig{BaseURL: "https://api.test/v1", APIKey: "sk-real-secret-9999", Model: "test-model", Preset: "DeepSeek"}
 	proxy.SaveSlotAsync("save-1", storage.SlotRed, cfg)
@@ -111,7 +112,7 @@ func TestLlmStoreSlotRoundtripMasked(t *testing.T) {
 // 降级路径：数据目录不可用 → 加载 nil 配置、保存错误回执、ResolveAPIKey 空串。
 func TestLlmStoreDegrade(t *testing.T) {
 	f := newLlmStoreFixture(t, "")
-	proxy := newLlmStore(f.store, f.emit)
+	proxy := newLlmStore(f.store, f.emit, &sync.WaitGroup{})
 
 	proxy.LoadSlotAsync("load-1", "llm_config_red")
 	loaded := f.wait(t).payload.(ui.SecureSlotLoaded)

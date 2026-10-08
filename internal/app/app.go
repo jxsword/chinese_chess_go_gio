@@ -6,6 +6,7 @@ package app
 import (
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 
 	"gioui.org/app"
@@ -46,6 +47,9 @@ type Window struct {
 	// 自动保存生命周期总线（T2'.2，07 §2）：blur/minimize 相位 → 各页 GameAutoSave。
 	autoSaveBus *state.LifecycleBus
 	repo        *gameRepo
+	// ioWG 后台 I/O 计数（repo/llmStore 共用）：进程退出前 Wait 收口后再关
+	// DAO——关闭期后台 goroutine 仍在用 DAO 的 use-after-Close（M7' 维护轮）。
+	ioWG sync.WaitGroup
 	// pendingBattle "进入对战"起点（T5'.3，recordBattle 路由传参的 Gio 形态）：
 	// OnBattle 先置值再 Navigate，工厂闭包经 gameEnv() 消费（一次性，主 goroutine）。
 	pendingBattle *ui.BattleStart
@@ -199,7 +203,7 @@ func (w *Window) gameEnv() ui.GameEnv {
 func (w *Window) llmEnv() ui.LlmEnv {
 	return ui.LlmEnv{
 		GameEnv:  w.gameEnv(),
-		Store:    newLlmStore(w.store, w.emitFunc()),
+		Store:    newLlmStore(w.store, w.emitFunc(), &w.ioWG),
 		Settings: w.store.Settings(),
 	}
 }
@@ -215,10 +219,15 @@ func Run(cfg Config) error {
 	w.store = openDataStore()
 	w.settings = state.NewGlobalSettings(w.store.Settings())
 	w.settings.Load()
-	defer w.store.Close()
+	// 退出收口（M7' 维护轮）：事件循环返回后先等后台 I/O 全部完成，再关 DAO
+	//——repo/llmStore 的后台 goroutine 仍可能持有 DAO（use-after-Close）。
+	defer func() {
+		w.ioWG.Wait()
+		w.store.Close()
+	}()
 	// 自动保存生命周期总线 + repo 异步代理（T2'.2，07 §2）。
 	w.autoSaveBus = &state.LifecycleBus{}
-	w.repo = newGameRepo(w.store, w.emitFunc())
+	w.repo = newGameRepo(w.store, w.emitFunc(), &w.ioWG)
 	w.lifecycle.Add(&autosaveBridge{bus: w.autoSaveBus, window: w})
 	w.Router().Register(RouteHome, ui.NewHomePage(ui.HomePageHooks{
 		OnNavigate: func(id ui.EntryID) {

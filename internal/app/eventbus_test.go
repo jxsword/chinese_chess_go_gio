@@ -4,7 +4,10 @@ package app
 // 语义锚点 = 00 §3：后台 goroutine 经事件通道回主循环；requestId 取消与迟到结果
 // 丢弃（铁律 #G5，上游 00 §3.3 规范照搬）；通道满非阻塞丢弃。
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // Emit→Drain 基本往返：事件按序投递一次。
 func TestEventBus_DrainDeliversOnceInOrder(t *testing.T) {
@@ -76,5 +79,34 @@ func TestEventBus_CancelMultipleAndIdempotent(t *testing.T) {
 	bus.Emit(AppEvent{RequestID: "b"})
 	if got := bus.Drain(); len(got) != 0 {
 		t.Fatalf("drain = %+v, want 空", got)
+	}
+}
+
+// 取消登记的陈旧条目清理（M7' 维护轮）：超过 cancelTTL 的登记在下次 Cancel
+// 时被清除（防表无限增长）；TTL 内的登记语义不变（#G5 迟到丢弃仍生效）。
+func TestEventBus_CancelledRegistryEvictsStale(t *testing.T) {
+	bus := NewEventBus(16)
+	bus.mu.Lock()
+	bus.cancelled["stale"] = time.Now().Add(-2 * cancelTTL)
+	bus.cancelled["fresh"] = time.Now()
+	bus.mu.Unlock()
+
+	bus.Cancel("another")
+
+	bus.mu.Lock()
+	_, hasStale := bus.cancelled["stale"]
+	_, hasFresh := bus.cancelled["fresh"]
+	bus.mu.Unlock()
+	if hasStale {
+		t.Fatal("stale cancellation entry must be evicted")
+	}
+	if !hasFresh || len(bus.cancelled) != 2 {
+		t.Fatalf("fresh entries must survive, cancelled = %v", bus.cancelled)
+	}
+
+	// TTL 内登记：迟到事件仍按 id 丢弃（#G5 语义不变）
+	bus.Emit(AppEvent{RequestID: "fresh", Payload: "late"})
+	if evs := bus.Drain(); len(evs) != 0 {
+		t.Fatalf("late event must be dropped, got %v", evs)
 	}
 }

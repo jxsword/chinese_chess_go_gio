@@ -9,7 +9,13 @@ package app
 import (
 	"log"
 	"sync"
+	"time"
 )
+
+// cancelTTL 取消登记保留时长：迟到结果实际在毫秒级到站，超过 TTL 仍存留的
+// 只可能是已消费的陈旧 id——语义不变（#G5），Cancel 时顺带清理防表无限增长
+// （M7' 维护轮：原 cancelled 表只增不清，长会话缓慢泄漏）。
+const cancelTTL = 5 * time.Minute
 
 // AppEvent 事件总线条目；RequestID 为空 = 无关联事件（直通，不受 Cancel 影响）。
 type AppEvent struct {
@@ -23,12 +29,12 @@ type AppEvent struct {
 type EventBus struct {
 	events    chan AppEvent
 	mu        sync.Mutex
-	cancelled map[string]bool
+	cancelled map[string]time.Time
 }
 
 // NewEventBus 创建总线（buffer 为通道容量）。
 func NewEventBus(buffer int) *EventBus {
-	return &EventBus{events: make(chan AppEvent, buffer), cancelled: map[string]bool{}}
+	return &EventBus{events: make(chan AppEvent, buffer), cancelled: map[string]time.Time{}}
 }
 
 // Emit 提交事件（非阻塞：通道满时丢弃并记日志——后台 goroutine 禁止阻塞等待主循环）。
@@ -40,14 +46,25 @@ func (b *EventBus) Emit(ev AppEvent) {
 	}
 }
 
-// Cancel 取消请求：其迟到结果在 Drain 时按 id 丢弃（幂等）。
+// Cancel 取消请求：其迟到结果在 Drain 时按 id 丢弃（幂等）；顺带清理过期登记。
 func (b *EventBus) Cancel(id string) {
 	if id == "" {
 		return
 	}
+	now := time.Now()
 	b.mu.Lock()
-	b.cancelled[id] = true
+	b.sweepLocked(now)
+	b.cancelled[id] = now
 	b.mu.Unlock()
+}
+
+// sweepLocked 清理超过 cancelTTL 的陈旧取消登记（调用方持锁）。
+func (b *EventBus) sweepLocked(now time.Time) {
+	for id, at := range b.cancelled {
+		if now.Sub(at) > cancelTTL {
+			delete(b.cancelled, id)
+		}
+	}
 }
 
 // Drain 主循环非阻塞取走全部未取消事件。
@@ -58,7 +75,7 @@ func (b *EventBus) Drain() []AppEvent {
 		case ev := <-b.events:
 			if ev.RequestID != "" {
 				b.mu.Lock()
-				dropped := b.cancelled[ev.RequestID]
+				_, dropped := b.cancelled[ev.RequestID]
 				b.mu.Unlock()
 				if dropped {
 					continue // 迟到结果按 requestId 丢弃（#G5）
