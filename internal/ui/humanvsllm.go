@@ -72,6 +72,9 @@ type HumanVsLlmPage struct {
 	mirrored     bool
 	configCard   *LlmConfigCard
 	gameSettings state.LlmGameSettings
+	cfgBlackID   string // 黑红槽位加载在途 id（SecureSlotLoaded 按 id 收口，#G5）
+	cfgRedID     string
+	cfgSaveID    string // 立即保存在途 id（SecureSlotSaved 按 id 收口）
 
 	// LLM 走子在途状态（requestId 形态，同 humanvsai）
 	llmRequestID string
@@ -198,8 +201,10 @@ func newHumanVsLlmPage(env LlmEnv, hooks HumanVsLlmHooks, llmRunner LlmRunner, r
 
 	// 配置槽位异步加载（未加载完成不触发/不回写，防错 #4）
 	if env.Store != nil {
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-black"), humanVsLlmBlackSlot)
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-red"), humanVsLlmRedSlot)
+		p.cfgBlackID = env.NewRequestID("cfg-black")
+		p.cfgRedID = env.NewRequestID("cfg-red")
+		env.Store.LoadSlotAsync(p.cfgBlackID, humanVsLlmBlackSlot)
+		env.Store.LoadSlotAsync(p.cfgRedID, humanVsLlmRedSlot)
 	} else {
 		p.blackLoaded = true
 		p.redLoaded = true
@@ -320,7 +325,7 @@ func (p *HumanVsLlmPage) OnAppEvent(payload any) {
 			p.persistNow()
 		}
 	case RecordSaveDone:
-		if p.saveDialog != nil {
+		if p.saveDialog != nil && p.saveDialog.MatchSaveReceipt(ev.RequestID) {
 			p.saveDialog.OnSaved(ev.Err)
 			if ev.Err == nil {
 				p.showToast("棋谱已保存")
@@ -337,7 +342,8 @@ func (p *HumanVsLlmPage) OnAppEvent(payload any) {
 	}
 }
 
-// onSlotLoaded 凭据槽位加载回执（掩码 Key；DR-014 镜像判定）。
+// onSlotLoaded 凭据槽位加载回执（掩码 Key；DR-014 镜像判定；按请求 id 收口——
+// #G5，旧页在途回执不落新页盘面）。
 func (p *HumanVsLlmPage) onSlotLoaded(ev SecureSlotLoaded) {
 	cfg := llm.LlmEndpointConfig{}
 	if ev.Config != nil {
@@ -345,9 +351,15 @@ func (p *HumanVsLlmPage) onSlotLoaded(ev SecureSlotLoaded) {
 	}
 	switch ev.Slot {
 	case humanVsLlmBlackSlot:
+		if ev.RequestID != p.cfgBlackID {
+			return
+		}
 		p.blackLoaded = true
 		p.blackConfig = cfg
 	case humanVsLlmRedSlot:
+		if ev.RequestID != p.cfgRedID {
+			return
+		}
 		p.redLoaded = true
 		p.redConfig = cfg
 	}
@@ -371,9 +383,10 @@ func (p *HumanVsLlmPage) applySlotConfig() {
 	p.configCard.SetConfig(p.config)
 }
 
-// onSlotSaved 槽位写入回执（立即保存 toast；上游 res.stored 分支同文案）。
+// onSlotSaved 槽位写入回执（立即保存 toast；上游 res.stored 分支同文案；
+// 按请求 id 收口——#G5，防抖保存的回执不吞立即保存的计数）。
 func (p *HumanVsLlmPage) onSlotSaved(ev SecureSlotSaved) {
-	if ev.Slot != humanVsLlmBlackSlot || p.saveInFlight == 0 {
+	if ev.Slot != humanVsLlmBlackSlot || p.saveInFlight == 0 || ev.RequestID != p.cfgSaveID {
 		return
 	}
 	p.saveInFlight--
@@ -768,7 +781,8 @@ func (p *HumanVsLlmPage) saveNow() {
 		return
 	}
 	p.saveInFlight++
-	p.llmStore.SaveSlotAsync(p.env.NewRequestID("save-cfg"), humanVsLlmBlackSlot, p.config)
+	p.cfgSaveID = p.env.NewRequestID("save-cfg")
+	p.llmStore.SaveSlotAsync(p.cfgSaveID, humanVsLlmBlackSlot, p.config)
 	p.llmStore.SaveSettings(p.fullSettings(), fullSettingFields...)
 }
 

@@ -236,7 +236,7 @@ func TestStudioSolveFlowAndRecord(t *testing.T) {
 	}
 
 	// 入库回执（生产路径异步；此处直接回投——stub 同步保存不回调）
-	page.OnAppEvent(RecordSaveDone{})
+	page.OnAppEvent(RecordSaveDone{RequestID: page.saveID})
 	if !page.sheetOpen || page.sheet == nil {
 		t.Fatal("入库回执后应打开结果面板")
 	}
@@ -396,9 +396,9 @@ func TestStudioVisionSlotsAndGuards(t *testing.T) {
 // spec: 识图失败路径——错误进消息区，不落盘面。
 func TestStudioVisionError(t *testing.T) {
 	page, _, _, _ := newTestStudioPage(t)
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_assistant"})
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_black"})
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_red"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgAsstID, Slot: "llm_config_assistant"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgBlkID, Slot: "llm_config_black"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgRedID, Slot: "llm_config_red"})
 	page.beginVisionRead("/tmp/board.png")
 	reqID := page.visionRequest
 	page.OnAppEvent(VisionReadDone{RequestID: reqID, Err: errors.New("已重试 2 次仍失败")})
@@ -581,9 +581,9 @@ func TestStudioAssistantDialog(t *testing.T) {
 	}
 	page := NewStudioPage(env, StudioHooks{})
 	t.Cleanup(page.Dispose)
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_assistant"})
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_black"})
-	page.OnAppEvent(SecureSlotLoaded{Slot: "llm_config_red"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgAsstID, Slot: "llm_config_assistant"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgBlkID, Slot: "llm_config_black"})
+	page.OnAppEvent(SecureSlotLoaded{RequestID: page.cfgRedID, Slot: "llm_config_red"})
 
 	page.openAssistantDialog()
 	if !page.modalOpen() || page.assistantCard == nil {
@@ -595,7 +595,7 @@ func TestStudioAssistantDialog(t *testing.T) {
 	if _, ok := store.saved["llm_config_assistant"]; !ok {
 		t.Fatal("助手槽应写入")
 	}
-	page.OnAppEvent(SecureSlotSaved{Slot: "llm_config_assistant", Stored: "plainFallback"})
+	page.OnAppEvent(SecureSlotSaved{RequestID: page.cfgSaveAsstID, Slot: "llm_config_assistant", Stored: "plainFallback"})
 	if page.assistantOpen {
 		t.Fatal("保存回执后应关闭弹窗")
 	}

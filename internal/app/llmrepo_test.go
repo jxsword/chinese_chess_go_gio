@@ -58,11 +58,14 @@ func TestLlmStoreSlotRoundtripMasked(t *testing.T) {
 	if r.err != nil || saved.Stored == "" {
 		t.Fatalf("save failed: err=%v stored=%q", r.err, saved.Stored)
 	}
+	if saved.RequestID != "save-1" {
+		t.Fatalf("save receipt requestId = %q, want save-1（#G5 载荷带 id）", saved.RequestID)
+	}
 
 	proxy.LoadSlotAsync("load-1", saved.Slot)
 	loaded := f.wait(t).payload.(ui.SecureSlotLoaded)
-	if loaded.Config == nil {
-		t.Fatal("config expected after save")
+	if loaded.RequestID != "load-1" {
+		t.Fatalf("load receipt requestId = %q, want load-1（#G5 载荷带 id）", loaded.RequestID)
 	}
 	if loaded.Config.APIKey != "****9999" {
 		t.Fatalf("masked key = %q, want ****9999（铁律 #G7）", loaded.Config.APIKey)

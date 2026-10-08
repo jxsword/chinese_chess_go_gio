@@ -255,7 +255,7 @@ func (p *HumanVsAiPage) OnAppEvent(payload any) {
 	case EngineMoveDone:
 		p.onAiMoveDone(ev)
 	case RecordSaveDone:
-		if p.saveDialog != nil {
+		if p.saveDialog != nil && p.saveDialog.MatchSaveReceipt(ev.RequestID) {
 			p.saveDialog.OnSaved(ev.Err)
 			if ev.Err == nil {
 				p.showToast("棋谱已保存")

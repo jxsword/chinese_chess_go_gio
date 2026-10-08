@@ -93,17 +93,17 @@ func (r *recordsFakeRepo) RecordsListAsync(requestID string) {
 		}
 		out = append(out, storage.GameRecordSummary{ID: d.ID, Title: d.Title, Mode: d.Mode, Result: d.Result, SolveStatus: &solved, CreatedAt: d.CreatedAt})
 	}
-	r.emit(requestID, ui.RecordsListDone{Records: out})
+	r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: out})
 }
 
 func (r *recordsFakeRepo) RecordsGetAsync(requestID string, id int64) {
 	for i := range r.data {
 		if r.data[i].ID == id {
-			r.emit(requestID, ui.RecordGetDone{Record: &r.data[i]})
+			r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Record: &r.data[i]})
 			return
 		}
 	}
-	r.emit(requestID, ui.RecordGetDone{Err: errors.New("missing")})
+	r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Err: errors.New("missing")})
 }
 
 func (r *recordsFakeRepo) RecordsSaveAsync(requestID string, record state.GameRecordData) {}
@@ -114,7 +114,7 @@ func (r *recordsFakeRepo) RecordsDeleteAsync(requestID string, id int64) {
 			break
 		}
 	}
-	r.emit(requestID, ui.RecordDeleteDone{})
+	r.emit(requestID, ui.RecordDeleteDone{RequestID: requestID})
 }
 
 // demoCorpus M5' 语料库页渲染冒烟（POC 专用，正式页面走 go run .）：

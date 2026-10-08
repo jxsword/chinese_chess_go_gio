@@ -5,6 +5,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jxsword/chinese_chess_go_gio/internal/rules"
@@ -21,26 +22,26 @@ type fakeRecordRepo struct {
 }
 
 func (f *fakeRecordRepo) RecordsListAsync(requestID string) {
-	f.emitted = append(f.emitted, RecordsListDone{Records: f.records})
+	f.emitted = append(f.emitted, RecordsListDone{RequestID: requestID, Records: f.records})
 }
 func (f *fakeRecordRepo) RecordsGetAsync(requestID string, id int64) {
 	if r, ok := f.byID[id]; ok {
-		f.emitted = append(f.emitted, RecordGetDone{Record: r})
+		f.emitted = append(f.emitted, RecordGetDone{RequestID: requestID, Record: r})
 	} else {
-		f.emitted = append(f.emitted, RecordGetDone{Err: errors.New("missing")})
+		f.emitted = append(f.emitted, RecordGetDone{RequestID: requestID, Err: errors.New("missing")})
 	}
 }
 func (f *fakeRecordRepo) RecordsSaveAsync(requestID string, record state.GameRecordData) {}
 func (f *fakeRecordRepo) RecordsDeleteAsync(requestID string, id int64) {
 	delete(f.byID, id)
-	f.emitted = append(f.emitted, RecordDeleteDone{})
+	f.emitted = append(f.emitted, RecordDeleteDone{RequestID: requestID})
 }
 
 func newRecordLibraryEnv() (GameEnv, *fakeRecordRepo) {
 	repo := &fakeRecordRepo{byID: map[int64]*storage.GameRecord{}}
 	env := GameEnv{
 		Records:      repo,
-		NewRequestID: func(prefix string) string { repo.seq++; return prefix },
+		NewRequestID: func(prefix string) string { repo.seq++; return fmt.Sprintf("%s-%d", prefix, repo.seq) },
 	}
 	return env, repo
 }
@@ -215,4 +216,42 @@ func TestRecordMenuActionDispatch(t *testing.T) {
 	// 导出 PGN / 分享：写 pending 剪贴板面
 	p.runAction(actExport, summaryRecord(5, "残局乙", "endgame", nil, &solved))
 	p.runAction(actShare, summaryRecord(5, "残局乙", "endgame", nil, &solved))
+}
+
+// 迟到回执按 id 收口（#G5，M7' 维护轮）：旧列表/详情回执不落新请求——
+// 连续 reload 或连续点开两条记录时，旧响应不得覆盖新状态。
+func TestRecordLibraryStaleReceiptsDropped(t *testing.T) {
+	env, _ := newRecordLibraryEnv()
+	p := NewRecordLibraryPage(env, RecordLibraryHooks{})
+
+	// 列表：构造时已签发一次，再签发一次 → 旧 id 的回执丢弃
+	staleList := p.listID
+	p.reload()
+	if staleList == p.listID {
+		t.Fatal("repeated reload must issue a new requestId")
+	}
+	p.OnAppEvent(RecordsListDone{RequestID: staleList, Records: []storage.GameRecordSummary{summaryRecord(9, "stale", "", nil, nil)}})
+	if p.loaded {
+		t.Fatal("stale list receipt must be dropped")
+	}
+	p.OnAppEvent(RecordsListDone{RequestID: p.listID, Records: []storage.GameRecordSummary{summaryRecord(1, "fresh", "", nil, nil)}})
+	if !p.loaded || len(p.records) != 1 || p.records[0].Title != "fresh" {
+		t.Fatalf("fresh receipt should apply: %+v", p.records)
+	}
+
+	// 详情：连续点开两条记录 → 旧 id 的回执丢弃（不得用旧数据执行新动作）
+	p.openRecordByID(1, nil)
+	staleGet := p.getID
+	p.openRecordByID(2, nil)
+	if staleGet == p.getID {
+		t.Fatal("second open must issue a new requestId")
+	}
+	p.OnAppEvent(RecordGetDone{RequestID: staleGet, Err: errors.New("stale")})
+	if p.detailLoading != true || p.detail != nil {
+		t.Fatal("stale get receipt must be ignored (still loading)")
+	}
+	p.OnAppEvent(RecordGetDone{RequestID: p.getID, Record: &storage.GameRecord{ID: 2, Title: "记录乙"}})
+	if p.detailLoading || p.detail == nil || p.detail.ID != 2 {
+		t.Fatalf("fresh get receipt should open detail: %+v", p.detail)
+	}
 }

@@ -82,6 +82,9 @@ type RecordLibraryPage struct {
 	launcher      BattleLauncher
 	launchTarget  *state.GameRecordData
 	saveFileID    string
+	listID        string // 在途列表请求 id（迟到回执按 id 丢弃，#G5）
+	getID         string // 在途详情请求 id（连续点开两条记录时区分先后）
+	deleteID      string // 在途删除请求 id
 	deletingTitle string
 	deletingID    int64
 	pendingAction func(*state.GameRecordData)
@@ -145,7 +148,8 @@ func (p *RecordLibraryPage) newID(prefix string) string {
 
 func (p *RecordLibraryPage) reload() {
 	if p.env.Records != nil {
-		p.env.Records.RecordsListAsync(p.newID("records-list"))
+		p.listID = p.newID("records-list")
+		p.env.Records.RecordsListAsync(p.listID)
 	}
 }
 
@@ -168,9 +172,15 @@ func (p *RecordLibraryPage) Dispose() {}
 func (p *RecordLibraryPage) OnAppEvent(payload any) {
 	switch ev := payload.(type) {
 	case RecordsListDone:
+		if ev.RequestID != p.listID {
+			return // 迟到列表回执（连续 reload 时区分先后，#G5）
+		}
 		p.records = ev.Records
 		p.loaded = true
 	case RecordGetDone:
+		if ev.RequestID != p.getID {
+			return // 迟到详情回执（连续点开两条记录时旧响应不得落新请求，#G5）
+		}
 		p.detailLoading = false
 		if ev.Err != nil || ev.Record == nil {
 			p.pendingAction = nil
@@ -185,6 +195,9 @@ func (p *RecordLibraryPage) OnAppEvent(payload any) {
 		}
 		p.openDetail(&data)
 	case RecordDeleteDone:
+		if ev.RequestID != p.deleteID {
+			return
+		}
 		if ev.Err != nil {
 			p.showToast("删除失败：本地存储不可用")
 		} else {
@@ -262,9 +275,15 @@ func (p *RecordLibraryPage) openRecordByID(id int64, action func(*state.GameReco
 	p.pendingAction = action
 	p.detailID = id
 	p.detailLoading = true
-	if p.env.Records != nil {
-		p.env.Records.RecordsGetAsync(p.newID("records-get"), id)
+	if p.env.Records == nil {
+		// 降级环境（无记录库代理）：立即失败呈现，不得停在"加载中…"
+		p.detailLoading = false
+		p.pendingAction = nil
+		p.showToast("本地存储不可用")
+		return
 	}
+	p.getID = p.newID("records-get")
+	p.env.Records.RecordsGetAsync(p.getID, id)
 }
 
 // openDetail 打开详情（record_detail_page.dart 载入语义：残局类默认第一条解法、
@@ -463,7 +482,8 @@ func (p *RecordLibraryPage) handleEvents(gtx layout.Context) {
 		switch {
 		case p.deleteConfirmB.Clicked(gtx):
 			if p.env.Records != nil {
-				p.env.Records.RecordsDeleteAsync(p.newID("records-delete"), p.deletingID)
+				p.deleteID = p.newID("records-delete")
+				p.env.Records.RecordsDeleteAsync(p.deleteID, p.deletingID)
 			}
 			p.deletingTitle = ""
 			p.deletingID = 0

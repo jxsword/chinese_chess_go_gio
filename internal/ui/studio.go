@@ -170,6 +170,10 @@ type StudioPage struct {
 	asstLoaded      bool
 	blkLoaded       bool
 	redLoaded       bool
+	cfgAsstID       string // 三槽位加载在途 id（SecureSlotLoaded 按 id 收口，#G5）
+	cfgBlkID        string
+	cfgRedID        string
+	cfgSaveAsstID   string           // 助手槽保存（SecureSlotSaved 按 id 收口）
 	corrBtn         widget.Clickable // 摆盘校正（切摆盘校验 Tab 点击纠错）
 	revisionBtn     widget.Clickable // 重新识别（重新提交）
 	adoptBtn        widget.Clickable // 直接采用（切求解 Tab）
@@ -228,9 +232,12 @@ func NewStudioPage(env LlmEnv, hooks StudioHooks) *StudioPage {
 	p.board.blocked = p.modalOpen
 	// 三槽位配置异步加载（DR-009 借用解析前置；掩码回读——#G7）
 	if env.Store != nil && env.NewRequestID != nil {
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-asst"), storage.SlotAssistant)
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-blk"), storage.SlotBlack)
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-red"), storage.SlotRed)
+		p.cfgAsstID = env.NewRequestID("cfg-asst")
+		p.cfgBlkID = env.NewRequestID("cfg-blk")
+		p.cfgRedID = env.NewRequestID("cfg-red")
+		env.Store.LoadSlotAsync(p.cfgAsstID, storage.SlotAssistant)
+		env.Store.LoadSlotAsync(p.cfgBlkID, storage.SlotBlack)
+		env.Store.LoadSlotAsync(p.cfgRedID, storage.SlotRed)
 	}
 	return p
 }
@@ -782,7 +789,8 @@ func (p *StudioPage) onVisionDone(ev VisionReadDone) {
 		pieceCount, turnName(p.redTurn))
 }
 
-// onSlotLoaded 凭据槽位掩码回读（DR-009 借用解析输入）。
+// onSlotLoaded 凭据槽位掩码回读（DR-009 借用解析输入；按请求 id 收口——#G5，
+// 旧页在途回执不落新页盘面）。
 func (p *StudioPage) onSlotLoaded(ev SecureSlotLoaded) {
 	var cfg llm.LlmEndpointConfig
 	if ev.Config != nil {
@@ -790,10 +798,19 @@ func (p *StudioPage) onSlotLoaded(ev SecureSlotLoaded) {
 	}
 	switch ev.Slot {
 	case storage.SlotAssistant:
+		if ev.RequestID != p.cfgAsstID {
+			return
+		}
 		p.asstConfig, p.asstLoaded = &cfg, true
 	case storage.SlotBlack:
+		if ev.RequestID != p.cfgBlkID {
+			return
+		}
 		p.blkConfig, p.blkLoaded = &cfg, true
 	case storage.SlotRed:
+		if ev.RequestID != p.cfgRedID {
+			return
+		}
 		p.redConfig, p.redLoaded = &cfg, true
 	}
 }
@@ -843,7 +860,9 @@ func (p *StudioPage) OnAppEvent(payload any) {
 	case SolveDone:
 		p.onSolveDone(ev)
 	case RecordSaveDone:
-		p.onRecordSaved(ev.Err)
+		if ev.RequestID == p.saveID { // 迟到入库回执按 id 丢弃（#G5）
+			p.onRecordSaved(ev.Err)
+		}
 	case ToastHide:
 		if ev.Seq == p.toastSeq {
 			p.toastText = ""
@@ -872,7 +891,7 @@ func (p *StudioPage) OnAppEvent(payload any) {
 			p.assistantCard.ApplyPaste(ev.Target, ev.Text, ev.Err)
 		}
 	case SecureSlotSaved:
-		if ev.Slot == storage.SlotAssistant && p.assistantOpen {
+		if ev.Slot == storage.SlotAssistant && p.assistantOpen && ev.RequestID == p.cfgSaveAsstID {
 			p.onAssistantSaved(ev)
 		}
 	}
@@ -1451,7 +1470,8 @@ func (p *StudioPage) closeAssistantDialog() {
 // onAssistantSaved 助手槽写入回执：toast + 重载槽位（掩码回读刷新）+ 关闭。
 func (p *StudioPage) onAssistantSaved(ev SecureSlotSaved) {
 	if p.env.Store != nil {
-		p.env.Store.LoadSlotAsync(p.newID("cfg-asst"), storage.SlotAssistant)
+		p.cfgAsstID = p.newID("cfg-asst")
+		p.env.Store.LoadSlotAsync(p.cfgAsstID, storage.SlotAssistant)
 	}
 	switch {
 	case ev.Err != nil:
@@ -1486,7 +1506,8 @@ func (p *StudioPage) saveAssistant() {
 		p.showToast("保存失败：本地存储不可用")
 		return
 	}
-	p.env.Store.SaveSlotAsync(p.newID("save-asst"), storage.SlotAssistant, p.assistantConfig)
+	p.cfgSaveAsstID = p.newID("save-asst")
+	p.env.Store.SaveSlotAsync(p.cfgSaveAsstID, storage.SlotAssistant, p.assistantConfig)
 }
 
 // layoutAssistantDialog 助手配置弹窗（遮罩 + 面板：配置卡 + 取消/保存；

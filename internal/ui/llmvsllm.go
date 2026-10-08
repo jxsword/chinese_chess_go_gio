@@ -61,6 +61,10 @@ type LlmVsLlmPage struct {
 	redCard      *LlmConfigCard
 	blackCard    *LlmConfigCard
 	gameSettings state.LlmGameSettings
+	cfgRedID     string // 红黑槽位加载在途 id（SecureSlotLoaded 按 id 收口，#G5）
+	cfgBlackID   string
+	saveRedID    string // 立即保存在途 id（SecureSlotSaved 按 id 收口）
+	saveBlackID  string
 
 	// 循环状态机（上游 running/paused/moveActive + gameSeqRef 的代次形态）
 	running      bool
@@ -199,8 +203,10 @@ func newLlmVsLlmPage(env LlmEnv, hooks LlmVsLlmHooks, llmRunner LlmRunner, runne
 	}
 
 	if env.Store != nil {
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-red"), storage.SlotRed)
-		env.Store.LoadSlotAsync(env.NewRequestID("cfg-black"), storage.SlotBlack)
+		p.cfgRedID = env.NewRequestID("cfg-red")
+		p.cfgBlackID = env.NewRequestID("cfg-black")
+		env.Store.LoadSlotAsync(p.cfgRedID, storage.SlotRed)
+		env.Store.LoadSlotAsync(p.cfgBlackID, storage.SlotBlack)
 	} else {
 		p.redLoaded = true
 		p.blackLoaded = true
@@ -327,7 +333,7 @@ func (p *LlmVsLlmPage) OnAppEvent(payload any) {
 			p.persistNow()
 		}
 	case RecordSaveDone:
-		if p.saveDialog != nil {
+		if p.saveDialog != nil && p.saveDialog.MatchSaveReceipt(ev.RequestID) {
 			p.saveDialog.OnSaved(ev.Err)
 			if ev.Err == nil {
 				p.showToast("棋谱已保存")
@@ -344,7 +350,8 @@ func (p *LlmVsLlmPage) OnAppEvent(payload any) {
 	}
 }
 
-// onSlotLoaded 双槽位配置落位（掩码 Key）。
+// onSlotLoaded 双槽位配置落位（掩码 Key；按请求 id 收口——#G5，
+// 旧页在途回执不落新页盘面）。
 func (p *LlmVsLlmPage) onSlotLoaded(ev SecureSlotLoaded) {
 	cfg := llm.LlmEndpointConfig{}
 	if ev.Config != nil {
@@ -352,19 +359,38 @@ func (p *LlmVsLlmPage) onSlotLoaded(ev SecureSlotLoaded) {
 	}
 	switch ev.Slot {
 	case storage.SlotRed:
+		if ev.RequestID != p.cfgRedID {
+			return
+		}
 		p.redLoaded = true
 		p.redConfig = cfg
 		p.redCard.SetConfig(cfg)
 	case storage.SlotBlack:
+		if ev.RequestID != p.cfgBlackID {
+			return
+		}
 		p.blackLoaded = true
 		p.blackConfig = cfg
 		p.blackCard.SetConfig(cfg)
 	}
 }
 
-// onSlotSaved 双槽位写入回执（两回执齐 → 汇总 toast；上游 Promise.all 同语义）。
+// onSlotSaved 双槽位写入回执（两回执齐 → 汇总 toast；上游 Promise.all 同语义；
+// 按请求 id 收口——#G5，防抖保存的回执不吞立即保存的计数）。
 func (p *LlmVsLlmPage) onSlotSaved(ev SecureSlotSaved) {
 	if p.saveInFlight == 0 {
+		return
+	}
+	switch ev.Slot {
+	case storage.SlotRed:
+		if ev.RequestID != p.saveRedID {
+			return
+		}
+	case storage.SlotBlack:
+		if ev.RequestID != p.saveBlackID {
+			return
+		}
+	default:
 		return
 	}
 	if ev.Err != nil {
@@ -735,8 +761,10 @@ func (p *LlmVsLlmPage) saveNow() {
 		return
 	}
 	p.saveInFlight = 2
-	p.llmStore.SaveSlotAsync(p.env.NewRequestID("save-red"), storage.SlotRed, p.redConfig)
-	p.llmStore.SaveSlotAsync(p.env.NewRequestID("save-black"), storage.SlotBlack, p.blackConfig)
+	p.saveRedID = p.env.NewRequestID("save-red")
+	p.saveBlackID = p.env.NewRequestID("save-black")
+	p.llmStore.SaveSlotAsync(p.saveRedID, storage.SlotRed, p.redConfig)
+	p.llmStore.SaveSlotAsync(p.saveBlackID, storage.SlotBlack, p.blackConfig)
 	p.llmStore.SaveSettings(p.gameSettings)
 }
 

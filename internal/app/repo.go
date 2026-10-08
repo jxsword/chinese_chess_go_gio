@@ -108,16 +108,16 @@ func (r *gameRepo) RecordsListAsync(requestID string) {
 	go func() {
 		dao, err := r.store.DB()
 		if err != nil {
-			r.emit(requestID, ui.RecordsListDone{Records: []storage.GameRecordSummary{}}, nil)
+			r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: []storage.GameRecordSummary{}}, nil)
 			return
 		}
 		records, err := dao.RecordSummaries()
 		if err != nil {
 			log.Println("app: 记录列表读取失败:", err)
-			r.emit(requestID, ui.RecordsListDone{Records: []storage.GameRecordSummary{}}, nil)
+			r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: []storage.GameRecordSummary{}}, nil)
 			return
 		}
-		r.emit(requestID, ui.RecordsListDone{Records: records}, nil)
+		r.emit(requestID, ui.RecordsListDone{RequestID: requestID, Records: records}, nil)
 	}()
 }
 
@@ -126,16 +126,16 @@ func (r *gameRepo) RecordsGetAsync(requestID string, id int64) {
 	go func() {
 		dao, err := r.store.DB()
 		if err != nil {
-			r.emit(requestID, ui.RecordGetDone{Err: err}, nil)
+			r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Err: err}, nil)
 			return
 		}
 		record, err := dao.RecordByID(id)
 		if err != nil {
 			log.Println("app: 记录读取失败:", err)
-			r.emit(requestID, ui.RecordGetDone{Err: err}, nil)
+			r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Err: err}, nil)
 			return
 		}
-		r.emit(requestID, ui.RecordGetDone{Record: record}, nil)
+		r.emit(requestID, ui.RecordGetDone{RequestID: requestID, Record: record}, nil)
 	}()
 }
 
@@ -144,16 +144,16 @@ func (r *gameRepo) RecordsSaveAsync(requestID string, record state.GameRecordDat
 	go func() {
 		dao, err := r.store.DB()
 		if err != nil {
-			r.emit(requestID, ui.RecordSaveDone{Err: err}, nil)
+			r.emit(requestID, ui.RecordSaveDone{RequestID: requestID, Err: err}, nil)
 			return
 		}
 		st := state.RecordDataToStorage(record)
 		if _, err := dao.InsertRecord(&st); err != nil {
 			log.Println("app: 保存棋谱失败:", err)
-			r.emit(requestID, ui.RecordSaveDone{Err: err}, nil)
+			r.emit(requestID, ui.RecordSaveDone{RequestID: requestID, Err: err}, nil)
 			return
 		}
-		r.emit(requestID, ui.RecordSaveDone{}, nil)
+		r.emit(requestID, ui.RecordSaveDone{RequestID: requestID}, nil)
 	}()
 }
 
@@ -162,13 +162,13 @@ func (r *gameRepo) RecordsDeleteAsync(requestID string, id int64) {
 	go func() {
 		dao, err := r.store.DB()
 		if err != nil {
-			r.emit(requestID, ui.RecordDeleteDone{Err: err}, nil)
+			r.emit(requestID, ui.RecordDeleteDone{RequestID: requestID, Err: err}, nil)
 			return
 		}
 		err = dao.DeleteRecord(id)
 		if err != nil {
 			log.Println("app: 删除棋谱失败:", err)
 		}
-		r.emit(requestID, ui.RecordDeleteDone{Err: err}, nil)
+		r.emit(requestID, ui.RecordDeleteDone{RequestID: requestID, Err: err}, nil)
 	}()
 }

@@ -39,11 +39,12 @@ func newLlvFixture() *llvFixture {
 	return f
 }
 
-// loadConfigs 投递双槽位加载回执。
+// loadConfigs 投递双槽位加载回执（请求 id 用页面自己签发的在途 id——#G5，
+// fake 需匹配页面收口）。
 func (f *llvFixture) loadConfigs(red, black llm.LlmEndpointConfig) {
 	f.store.scripts = map[string]*llm.LlmEndpointConfig{storage.SlotRed: &red, storage.SlotBlack: &black}
-	f.store.LoadSlotAsync("t-red", storage.SlotRed)
-	f.store.LoadSlotAsync("t-black", storage.SlotBlack)
+	f.store.LoadSlotAsync(f.page.cfgRedID, storage.SlotRed)
+	f.store.LoadSlotAsync(f.page.cfgBlackID, storage.SlotBlack)
 	f.store.mu.Lock()
 	pending := append([]SecureSlotLoaded(nil), f.store.pendingLoads...)
 	f.store.pendingLoads = nil
@@ -268,17 +269,17 @@ func TestLlmVsLlmSaveNow(t *testing.T) {
 	if f.store.saved[0].slot != storage.SlotRed || f.store.saved[1].slot != storage.SlotBlack {
 		t.Fatalf("slots = %q,%q", f.store.saved[0].slot, f.store.saved[1].slot)
 	}
-	f.page.OnAppEvent(SecureSlotSaved{Slot: storage.SlotRed, Stored: "encrypted"})
+	f.page.OnAppEvent(SecureSlotSaved{RequestID: f.store.saved[0].id, Slot: storage.SlotRed, Stored: "encrypted"})
 	if f.page.toastText != "" {
 		t.Fatal("toast only after both receipts")
 	}
-	f.page.OnAppEvent(SecureSlotSaved{Slot: storage.SlotBlack, Stored: "encrypted"})
+	f.page.OnAppEvent(SecureSlotSaved{RequestID: f.store.saved[1].id, Slot: storage.SlotBlack, Stored: "encrypted"})
 	if f.page.toastText != "双方模型配置已保存" {
 		t.Fatalf("toast = %q", f.page.toastText)
 	}
 	// 失败路径
 	f.page.saveNow()
-	f.page.OnAppEvent(SecureSlotSaved{Slot: storage.SlotRed, Err: errStorageUnavailableLike()})
+	f.page.OnAppEvent(SecureSlotSaved{RequestID: f.store.saved[2].id, Slot: storage.SlotRed, Err: errStorageUnavailableLike()})
 	if f.page.toastText != "保存失败：本地存储不可用" {
 		t.Fatalf("toast = %q", f.page.toastText)
 	}

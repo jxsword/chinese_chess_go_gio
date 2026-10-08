@@ -127,6 +127,12 @@ func (d *RecordSaveDialog) OnSaved(err error) {
 	d.close()
 }
 
+// MatchSaveReceipt 回执新鲜度判定（页面按 RequestID 比对后转发——#G5：
+// 迟到/上一弹层的保存回执不得关闭当前弹层）。
+func (d *RecordSaveDialog) MatchSaveReceipt(requestID string) bool {
+	return requestID != "" && requestID == d.saveID
+}
+
 // Open 弹层是否打开（页面 modalOpen 纳入禁手守卫）。
 func (d *RecordSaveDialog) Open() bool { return d != nil }
 

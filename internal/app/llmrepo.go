@@ -48,10 +48,10 @@ func (s *llmStore) LoadSlotAsync(requestID, slot string) {
 	go func() {
 		creds := s.store.Credentials()
 		if creds == nil {
-			s.emit(requestID, ui.SecureSlotLoaded{Slot: slot}, nil)
+			s.emit(requestID, ui.SecureSlotLoaded{RequestID: requestID, Slot: slot}, nil)
 			return
 		}
-		s.emit(requestID, ui.SecureSlotLoaded{Slot: slot, Config: slotToLlm(creds.Get(slot))}, nil)
+		s.emit(requestID, ui.SecureSlotLoaded{RequestID: requestID, Slot: slot, Config: slotToLlm(creds.Get(slot))}, nil)
 	}()
 }
 
@@ -61,7 +61,7 @@ func (s *llmStore) SaveSlotAsync(requestID, slot string, cfg llm.LlmEndpointConf
 	go func() {
 		creds := s.store.Credentials()
 		if creds == nil {
-			s.emit(requestID, ui.SecureSlotSaved{Slot: slot, Err: errStorageUnavailable}, nil)
+			s.emit(requestID, ui.SecureSlotSaved{RequestID: requestID, Slot: slot, Err: errStorageUnavailable}, nil)
 			return
 		}
 		// 落盘前清洗（掩码合并语义不变——掩码形态 Key 经复制物 Set 恢复原 Key）
@@ -78,7 +78,7 @@ func (s *llmStore) SaveSlotAsync(requestID, slot string, cfg llm.LlmEndpointConf
 		if err == nil {
 			stored = res.Stored
 		}
-		s.emit(requestID, ui.SecureSlotSaved{Slot: slot, Stored: stored}, err)
+		s.emit(requestID, ui.SecureSlotSaved{RequestID: requestID, Slot: slot, Stored: stored}, err)
 	}()
 }
 

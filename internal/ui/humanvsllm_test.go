@@ -34,26 +34,27 @@ type fakeLlmStore struct {
 }
 
 type fakeSlotSave struct {
+	id   string
 	slot string
 	cfg  llm.LlmEndpointConfig
 }
 
-func (s *fakeLlmStore) LoadSlotAsync(_, slot string) {
+func (s *fakeLlmStore) LoadSlotAsync(id, slot string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.loaded = append(s.loaded, slot)
 	if cfg, ok := s.scripts[slot]; ok {
 		cfgCopy := *cfg
-		s.pendingLoads = append(s.pendingLoads, SecureSlotLoaded{Slot: slot, Config: &cfgCopy})
+		s.pendingLoads = append(s.pendingLoads, SecureSlotLoaded{RequestID: id, Slot: slot, Config: &cfgCopy})
 	} else {
-		s.pendingLoads = append(s.pendingLoads, SecureSlotLoaded{Slot: slot})
+		s.pendingLoads = append(s.pendingLoads, SecureSlotLoaded{RequestID: id, Slot: slot})
 	}
 }
 
-func (s *fakeLlmStore) SaveSlotAsync(_ string, slot string, cfg llm.LlmEndpointConfig) {
+func (s *fakeLlmStore) SaveSlotAsync(id string, slot string, cfg llm.LlmEndpointConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.saved = append(s.saved, fakeSlotSave{slot: slot, cfg: cfg})
+	s.saved = append(s.saved, fakeSlotSave{id: id, slot: slot, cfg: cfg})
 }
 
 func (s *fakeLlmStore) SaveSettings(settings state.LlmGameSettings, _ ...state.LlmSettingsField) {
@@ -88,10 +89,11 @@ func llmEnvOf(env GameEnv, store LlmStore) LlmEnv {
 	return LlmEnv{GameEnv: env, Store: store, Settings: nil}
 }
 
-// reload 设置脚本后重新发起两槽位加载（构造期加载先于脚本设置）。
+// reload 设置脚本后重新发起两槽位加载（构造期加载先于脚本设置）；
+// 请求 id 用页面自己签发的在途 id（回执按 id 收口——#G5，fake 需匹配）。
 func (f *llmEnvFixture) reload() {
-	f.store.LoadSlotAsync("t-black", storage.SlotBlack)
-	f.store.LoadSlotAsync("t-red", storage.SlotRed)
+	f.store.LoadSlotAsync(f.page.cfgBlackID, storage.SlotBlack)
+	f.store.LoadSlotAsync(f.page.cfgRedID, storage.SlotRed)
 }
 
 // deliverLoad 投递槽位加载回执 + 完成进页恢复（模拟事件总线）。
@@ -379,13 +381,13 @@ func TestHumanVsLlmSaveNow(t *testing.T) {
 	if f2.store.saved[0].cfg.APIKey != "****blk9" {
 		t.Fatal("masked key must round-trip for storage merge")
 	}
-	f2.page.OnAppEvent(SecureSlotSaved{Slot: storage.SlotBlack, Stored: "encrypted"})
+	f2.page.OnAppEvent(SecureSlotSaved{RequestID: f2.store.saved[0].id, Slot: storage.SlotBlack, Stored: "encrypted"})
 	if f2.page.toastText != "模型配置已保存" {
 		t.Fatalf("toast = %q", f2.page.toastText)
 	}
 	// plainFallback 如实提示
 	f2.page.saveNow()
-	f2.page.OnAppEvent(SecureSlotSaved{Slot: storage.SlotBlack, Stored: "plainFallback"})
+	f2.page.OnAppEvent(SecureSlotSaved{RequestID: f2.store.saved[1].id, Slot: storage.SlotBlack, Stored: "plainFallback"})
 	if f2.page.toastText != "模型配置已保存（系统安全存储不可用，已明文保存到本地）" {
 		t.Fatalf("toast = %q", f2.page.toastText)
 	}

@@ -61,16 +61,18 @@ type EngineEvalDone struct {
 // SecureSlotLoaded 凭据槽位读取回执（00 §4 `secure:slot:get`，M4'）。Config 为 nil =
 // 未配置；Config.APIKey 已掩码（****+末4 位，铁律 #G7——完整 Key 不进 UI/日志）。
 type SecureSlotLoaded struct {
-	Slot   string
-	Config *llm.LlmEndpointConfig
+	RequestID string
+	Slot      string
+	Config    *llm.LlmEndpointConfig
 }
 
 // SecureSlotSaved 凭据槽位写入回执（00 §4 `secure:slot:set`，M4'）。Stored =
 // "encrypted"（keyring）/ "plainFallback"（0600 明文回退，UI 如实提示）；空串 = 失败。
 type SecureSlotSaved struct {
-	Slot   string
-	Stored string
-	Err    error
+	RequestID string
+	Slot      string
+	Stored    string
+	Err       error
 }
 
 // LlmStreamChunk LLM 流式增量（00 §4 llm:chunk，M4'）。Delta.Content 为 nil 的
@@ -159,23 +161,27 @@ type ReplayTick struct {
 // RecordsListDone 记录列表回执（00 §4 `cc:db:records:list`，D-004 记录库页）。
 // Err 为 nil 但 Records 空 = 读取失败降级为空列表（上游 catch → []）。
 type RecordsListDone struct {
-	Records []storage.GameRecordSummary
+	RequestID string
+	Records   []storage.GameRecordSummary
 }
 
 // RecordGetDone 单条记录回执（`cc:db:records:get`）。
 type RecordGetDone struct {
-	Record *storage.GameRecord
-	Err    error
+	RequestID string
+	Record    *storage.GameRecord
+	Err       error
 }
 
 // RecordSaveDone "保存为棋谱"回执（`cc:db:records:save`）。
 type RecordSaveDone struct {
-	Err error
+	RequestID string
+	Err       error
 }
 
 // RecordDeleteDone 删除棋谱回执（`cc:db:records:delete`）。
 type RecordDeleteDone struct {
-	Err error
+	RequestID string
+	Err       error
 }
 
 // ClipWriteDone 剪贴板写回执（00 §4 `clipboard:write`，Gio 新增 M5'）：

@@ -193,7 +193,7 @@ func (p *HumanVsHumanPage) OnAppEvent(payload any) {
 			p.showToast("棋局已保存")
 		}
 	case RecordSaveDone:
-		if p.saveDialog != nil {
+		if p.saveDialog != nil && p.saveDialog.MatchSaveReceipt(ev.RequestID) {
 			p.saveDialog.OnSaved(ev.Err)
 			if ev.Err == nil {
 				p.showToast("棋谱已保存")
