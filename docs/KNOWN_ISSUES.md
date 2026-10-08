@@ -20,6 +20,7 @@
 | K10 | 裁决对无效 FEN 行为差 | 领域 | ① | 继承 | 复制物同态，跨语言审计点 |
 | K11 | moveNotation 退化输入 panic | 领域 | ① | 继承 | 复制物同态，调用侧校验 |
 | K12 | 凭据槽位契约面字段差 | 领域+前端 | ① | 已注销（复制物已含修复） | 槽位 JSON 四字段终态 |
+| K13 | Wails 无 blur/minimize 后端窗口事件（总表原缺此行——M7' 维护轮补齐，§② 与 00 §8 既有引用） | Wails | ② | 替代 | `key.FocusEvent`（blur 相位）+ `system.Command` 原生窗口事件替代 Wails 缺口，映射表在 07 §2，各平台覆盖面 POC-4 核实 |
 | K14 | parseMovesJson 非整数值丢弃 | 领域(存储) | ① | 继承 | 复制物同态 |
 | K15 | settings clamp 边界差 | 领域(存储) | ①+③ | 继承 | 消费者注意 nil→默认兜底（07 §5） |
 | K16 | beforeClose 300ms best-effort | Wails | ② | 替代 | `system.Command` close 挂自动保存（07 §2），POC 核实 |
@@ -79,3 +80,5 @@ K7~K11、K14、K15、K17~K33 共 25 条为上游领域层 P3 留档（K12 已注
 | KG-009 | gio `layout.Center` 是 Direction（按 Min 约束空间居中），在 Stack 的 Stacked 子节点（Min={0,0}）内退化为左上角 | Gio 库语义（M2' 验收实测） | Direction.Layout 以 `csn=Min` 为居中边界（sz=dims 向 Min 钳制）；Stack 先布局 Stacked 子节点且 `Constraints.Min={0,0}`，弹窗面板因此贴左上角且被 `Exact{w,Max.Y}` 撑满整窗高度（首页标题等 Flex 子节点场景 Min=分片宽度不受影响） | 模态面板/toast 改为"宏量测内容尺寸 + op.Offset 手动居中"（widgets.go drawPanel/DrawToast，注释已注明）；后续凡在 Stack 遮罩层内定位浮层一律用此模式，不用 layout.Center |
 | KG-010 | LLM 流式 chunk 事件经 256 容量事件通道可能丢弃（非阻塞语义） | Gio 层 × 设计权衡（M4' 复审 P3） | 长回复高频 chunk + 主循环繁忙时 `EventBus.Emit` 通道满即丢（记日志）；流式消息区可能缺段，但走子结算（LlmMoveDone）/done/error 恰一次事件不受影响，requestId 收口语义完整 | 接受（00 §4 Emit 非阻塞是 #G3 铁律面——后台 goroutine 禁止阻塞等主循环）；消息区缺段仅观感；若实测观感差再评估 chunk 合并批投 |
 | KG-011 | 窗口最大化后标题栏"最小化/最大化（还原）"按钮均无响应（第 3 轮反馈补充：最大化按钮同样无响应） | WSLg × gio v0.10.3（M4' 用户验收实测） | 应用不拦截标题栏按钮（无 app 侧代码路径）；gio x11 最小化走 XIconifyWindow（os_x11.go:189-195 仅在 app 发起 Configure(Minimized) 时调用），最大化态下 WM 侧 iconify 请求未生效——疑 WSLg 窗口管理器对 gio 窗口的 WM_STATE 交互缺陷 | 变通：先点"还原"（unmaximize）再最小化；升 gio 版本时复核（与 KG-003 同一跟踪项） |
+| KG-012 | 复制物 corpusDownloader `stalled` 标志跨 goroutine 读写无同步（time.AfterFunc 回调写 / 主 goroutine 读） | 复制物（storage/corpusDownloader.go:399-450，M7' 全项目审核登记） | 按 Go 内存模型为数据竞争（`-race` 理论可报，本地全量测试未复现）；窗口极小且语义良性（下载停滞探针），实际影响可忽略 | 按 #G2/DR-G001 登记不修改（复制物零修改）；候选回上游 v1.1 问题清单（stalled 改原子量或经 channel 收口） |
+| KG-013 | 复制物错误文案失真两处：corpusDownloader 所有网络错误统一报"连接超时（15 秒无响应）"（DNS/证书等真实错误被吞）；cmd/eval stderr 的 note 按字节截断中文（可能切出半个 UTF-8 字符） | 复制物（storage/corpusDownloader.go:333-334、cmd/eval/main.go:123-125，M7' 全项目审核登记） | 均为人读错误面/进度面的文案失真，协议面（JSON 报告字段）不受影响；错误诊断时可能误导（非超时类失败显示为超时） | 按 #G2/DR-G001 登记不修改；候选回上游 v1.1 问题清单（错误分类映射 + rune 截断） |
